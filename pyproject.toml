@@ -26,6 +26,7 @@ dependencies = [
     "uvicorn[standard]>=0.28.0",
     "pydantic>=2.6.0",
     "pydantic-settings>=2.2.0",
+    "websockets>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -42,4 +43,4 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 
 [tool.hatch.build.targets.wheel]
-packages = ["core"]
+packages = ["core", "windows_agent"]

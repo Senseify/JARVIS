@@ -11,10 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from core import __version__
 from core.config import settings
 from core.constants import AgentLoopState
+from core.devices.agent_bridge import AgentBridge
 from core.devices.registry import DeviceRegistry
 from core.events.bus import EventBus
 from core.models.devices import Device, DeviceCreateRequest
 from core.models.events import AgentEvent
+from core.models.protocol import CommandDispatchRequest, CommandResultPayload
 from core.models.tasks import Task, TaskCreateRequest, TaskStatusResponse
 from core.persistence.database import Database
 from core.runtime.agent_runtime import AgentRuntime
@@ -34,6 +36,7 @@ class RuntimeContainer:
         self.event_bus = EventBus(database=self.database)
         self.tool_registry = ToolRegistry()
         self.device_registry = DeviceRegistry(database=self.database)
+        self.agent_bridge = AgentBridge(device_registry=self.device_registry)
         self.task_manager = TaskManager(database=self.database, event_bus=self.event_bus)
         self.agent_runtime = AgentRuntime(
             task_manager=self.task_manager,
@@ -46,7 +49,7 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     """Create and configure the FastAPI application for JARVIS OS Core."""
     rt = container or RuntimeContainer()
 
-    # Active WebSocket clients
+    # Active WebSocket clients for UI/Runtime events
     active_websockets: set[WebSocket] = set()
 
     async def broadcast_to_websockets(event: AgentEvent) -> None:
@@ -111,6 +114,7 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
             "version": __version__,
             "agent_loop_states": [state.value for state in AgentLoopState],
             "registered_tools": [t.name for t in rt.tool_registry.list_tools()],
+            "connected_agents": rt.agent_bridge.list_connected_devices(),
         }
 
     # -------------------------------------------------------------
@@ -120,7 +124,6 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     async def create_task(req: TaskCreateRequest):
         task = await rt.task_manager.create_task(req.input, metadata=req.metadata)
         if req.execute_immediately:
-            # Execute asynchronously in the background so API stays responsive
             asyncio.create_task(rt.agent_runtime.execute_task(task.id))
         return task
 
@@ -161,7 +164,7 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
         return await rt.agent_runtime.execute_task(task_id)
 
     # -------------------------------------------------------------
-    # Device Endpoints
+    # Device & Agent Endpoints
     # -------------------------------------------------------------
     @app.post("/devices", response_model=Device, status_code=status.HTTP_201_CREATED)
     async def register_device(req: DeviceCreateRequest):
@@ -180,6 +183,30 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     async def list_devices():
         return await rt.device_registry.list_devices()
 
+    @app.post("/devices/{device_id}/command", response_model=CommandResultPayload)
+    async def dispatch_device_command(device_id: str, req: CommandDispatchRequest):
+        if not rt.agent_bridge.is_connected(device_id):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Device '{device_id}' is not currently connected to Core.",
+            )
+        try:
+            result = await rt.agent_bridge.send_command(
+                device_id=device_id,
+                capability=req.capability,
+                parameters=req.parameters,
+                timeout=req.timeout,
+            )
+            return result
+        except KeyError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except TimeoutError as e:
+            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
     # -------------------------------------------------------------
     # Tools Endpoint
     # -------------------------------------------------------------
@@ -188,20 +215,25 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
         return rt.tool_registry.list_tools()
 
     # -------------------------------------------------------------
-    # WebSocket Event Stream
+    # WebSockets
     # -------------------------------------------------------------
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket):
+        """Streaming channel for client UIs (Orb/HUD) receiving runtime events."""
         await websocket.accept()
         active_websockets.add(websocket)
         try:
             while True:
-                # Keep alive and receive any client messages or pings
                 await websocket.receive_text()
         except WebSocketDisconnect:
             pass
         finally:
             active_websockets.discard(websocket)
+
+    @app.websocket("/ws/agent")
+    async def websocket_agent(websocket: WebSocket):
+        """Dedicated bridge channel for machine agents (e.g. Windows Agent)."""
+        await rt.agent_bridge.handle_agent_connection(websocket)
 
     return app
 
