@@ -153,3 +153,67 @@ async def test_native_windows_screen_capture_and_verification():
                 os.kill(launched_pid, signal.SIGTERM)
             except Exception:
                 pass
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Native Windows desktop integration test requires Windows operating system with active GUI session.",
+)
+@pytest.mark.asyncio
+async def test_native_windows_ui_detection_and_screen_understanding():
+    """Verify real native Windows UI element detection and screen understanding:
+    1. Launch Notepad
+    2. Focus Notepad window
+    3. Run screen.ui_elements to detect native controls and verify bounding box / center point
+    4. Run screen.understand to produce unified screen understanding
+    5. Clean up Notepad process
+    """
+    registry = CapabilityRegistry()
+    launched_pid = None
+
+    try:
+        # 1. Launch Notepad
+        launch_res = await registry.execute("app.launch", {"app_name": "notepad"}, request_id="real-win-ui-launch")
+        assert launch_res["success"] is True
+        launched_pid = launch_res.get("pid")
+        await asyncio.sleep(1.0)
+
+        # 2. Get window list to find handle
+        win_list_res = await registry.execute("window.list", {"include_invisible": False}, request_id="real-win-ui-list")
+        windows = win_list_res.get("windows", [])
+        notepad_windows = [w for w in windows if "notepad" in w.get("title", "").lower() or w.get("process_id") == launched_pid]
+        assert len(notepad_windows) > 0
+        notepad_hwnd = notepad_windows[0]["handle"]
+
+        # 3. Detect UI elements for Notepad window
+        ui_res = await registry.execute(
+            "screen.ui_elements",
+            {"window_handle": notepad_hwnd},
+            request_id="real-win-ui-elements",
+        )
+        assert ui_res["success"] is True
+        elements = ui_res.get("ui_elements", [])
+        assert len(elements) > 0
+
+        # Verify coordinate mapping (center_point present and within bounding box)
+        for el in elements:
+            if el.get("bounding_box"):
+                bbox = el["bounding_box"]
+                center = el.get("center_point")
+                assert center is not None
+                assert bbox["left"] <= center["x"] <= bbox["left"] + bbox["width"]
+                assert bbox["top"] <= center["y"] <= bbox["top"] + bbox["height"]
+
+        # 4. Run screen.understand
+        und_res = await registry.execute("screen.understand", {}, request_id="real-win-understand")
+        assert und_res["success"] is True
+        assert "observation_id" in und_res
+        assert "screen_state" in und_res
+        assert "ui_elements" in und_res
+
+    finally:
+        if launched_pid:
+            try:
+                os.kill(launched_pid, signal.SIGTERM)
+            except Exception:
+                pass

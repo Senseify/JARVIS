@@ -175,14 +175,91 @@ Composes execution, observation, and verification into a unified capability:
 6. Return Combined Action Receipt + Verification Result
 ```
 
-## 8. Privacy and Security Model
+## 8. Vision Foundation & Screen Understanding (Phase 6A)
 
-1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video. Observations are discrete and explicit.
-2. **Controlled Retention**: Image files exist only in short-lived temporary storage with strict retention pruning.
+Located in `windows_agent/vision/`, this subsystem allows JARVIS to turn captured screen images and window states into structured visual information and UI understanding.
+
+```
+SCREEN CAPTURE (Phase 5)
+        │
+        ▼
+   VISION CACHE (keyed by observation_id)
+   ┌────┴────────────────────────┐
+   ▼                             ▼
+OCR ENGINE              UI ELEMENT DETECTOR
+(Text Regions & BBoxes)  (Native Controls, Rects & Centers)
+   └────┬────────────────────────┘
+        ▼
+UNIFIED SCREEN UNDERSTANDING (ScreenUnderstanding Model)
+        │
+        ▼
+EXTENDED VERIFICATION ENGINE (Text & UI Element Primitives)
+```
+
+### 8.1 OCR Subsystem (`OCREngine`)
+- **Request-Driven**: Operates over an existing observation captured by Phase 5 or requests a new capture. Strictly avoids continuous background OCR.
+- **Structured Output**: Extracted text regions contain `text`, `bounding_box` (`left`, `top`, `width`, `height`), `confidence` score (0.0 to 1.0), and `observation_id`.
+- **Platform-Aware Execution**:
+  - On Windows 10/11: Invokes native WinRT `Windows.Media.Ocr` via PowerShell bridge without requiring external heavyweight OCR binaries.
+  - On non-Windows development environments: Operates with clean platform handling, returning structured empty regions without pretending Windows OCR ran.
+  - Pluggable custom provider support for unit and integration testing.
+
+### 8.2 Native UI Element Detection (`UIDetector`)
+- **Accessibility & Control Prioritization**: Leverages native Windows Win32 User32 APIs (`EnumChildWindows`, `GetClassNameW`, `GetWindowTextW`, `GetWindowRect`, `IsWindowVisible`, `IsWindowEnabled`, `GetFocus`) rather than attempting imprecise pixel inference.
+- **Detected Element Types**: `button`, `text_field`, `checkbox`, `radio_button`, `menu`, `window`, `link`, `static_text`, `combo_box`, `list_box`, and general controls.
+- **Structured Model (`UIElement`)**:
+  - `element_id`: Native HWND or identifier reference.
+  - `element_type`: Classification string.
+  - `name`: Text, title, or label.
+  - `bounding_box`: Screen-space rectangle (`left`, `top`, `width`, `height`).
+  - `center_point`: Computed center coordinates (`left + width // 2`, `top + height // 2`).
+  - `is_enabled`, `is_visible`, `is_focused`: Real control states.
+  - `interaction_capabilities`: Supported operations (`["click"]`, `["type", "clear", "focus"]`, etc.).
+- **Honest Detection**: Does not invent elements when the underlying OS cannot identify them. Clean empty return on non-Windows hosts.
+
+### 8.3 Coordinate Mapping
+- Where a detected UI element has a valid bounding rectangle, its center coordinates (`x`, `y`) are automatically calculated and exposed in `center_point`.
+- Prepares the foundation for future agency to bridge `visual element → coordinates → mouse action`.
+- Strictly does not click detected elements automatically in this milestone.
+
+### 8.4 Vision Caching (`VisionCache`)
+- Memory-bounded, TTL-backed cache keyed by `observation_id`.
+- Reuses OCR extractions and UI element detections when querying the same observation repeatedly.
+- Flushed on lifecycle eviction; does not create a permanent database of images or results.
+
+### 8.5 Unified Screen Understanding (`ScreenUnderstanding`)
+- Standard composite schema consumable by future JARVIS reasoning:
+  - `observation_id`: ID of the visual observation.
+  - `timestamp`: UTC ISO 8601 timestamp.
+  - `screen_state`: Underlying Phase 5 screen state.
+  - `active_window`: Active foreground window context.
+  - `text_regions`: List of extracted `TextRegion` instances.
+  - `ui_elements`: List of detected `UIElement` instances with center coordinates.
+
+### 8.6 Extended Verification Engine
+Extends deterministic verification with vision-aware primitives:
+- `verify_text_present(expected_text, text_regions, case_sensitive=False)`
+- `verify_text_absent(expected_text, text_regions, case_sensitive=False)`
+- `verify_ui_element(ui_elements, name=None, element_type=None, is_enabled=None, is_visible=None)`
+- Supported conditions in `verify_condition` and `action.verify`:
+  - `text_present`, `ocr_text_present`
+  - `text_absent`, `ocr_text_absent`
+  - `ui_element_exists`, `ui_element`, `ui_element_visible`, `ui_element_enabled`
+- Returns standard `VerificationResult` architecture; never claims verification success without inspecting detected evidence.
+
+### 8.7 Vision Capabilities
+- `screen.ocr`: Validates `ScreenOCRParams`, extracts OCR text regions from specified or newly captured observation.
+- `screen.ui_elements`: Validates `ScreenUIElementsParams`, discovers native UI controls and coordinates.
+- `screen.understand`: Validates `ScreenUnderstandParams`, returns complete `ScreenUnderstanding`.
+
+## 9. Privacy and Security Model
+
+1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video. Observations and vision analysis are discrete and explicit.
+2. **Controlled Retention**: Image files and vision cache entries exist only in short-lived temporary storage with strict retention pruning.
 3. **Payload Separation**: Large image binaries remain local to the storage layer; only metadata, resolution, window context, and file references are transmitted across Core channels.
 4. **Parameter Validation**: Strict Pydantic schemas forbid unvalidated extra fields and enforce positive bounds on capture coordinates.
 
-## 9. Technology Choices
+## 10. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
@@ -191,8 +268,9 @@ Composes execution, observation, and verification into a unified capability:
 - **Communication**: REST API for management + WebSockets for client events (`/ws/events`) and agent coordination (`/ws/agent`).
 - **Desktop Automation**: Native Windows User32 via standard library `ctypes` and safe `subprocess` calls.
 - **Screen Awareness**: `mss` screen grab library + PIL/PNG formatting.
+- **Vision Foundation**: Native WinRT Windows Media OCR via PowerShell bridge + User32 child window control inspection.
 
-## 10. Status & Deferred Milestones
+## 11. Status & Deferred Milestones
 
-- **Implemented (Phase 1–5)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, and Action → Observe → Verify workflow.
-- **Strictly Deferred**: OCR, computer vision, UI element recognition from pixels, LLM vision, virtual cursor overlay, floating Orb/HUD, voice recognition, wake words, iPad companion, remote internet networking, autonomous recovery loops.
+- **Implemented (Phases 1–6A)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, and unified ScreenUnderstanding.
+- **Strictly Deferred**: LLM vision, autonomous reasoning, autonomous clicking based on vision, long-term memory, custom skills, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.

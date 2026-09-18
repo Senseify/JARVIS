@@ -129,12 +129,120 @@ class VerificationEngine:
             failure_reason=failure_reason,
         )
 
+    def verify_text_present(
+        self,
+        expected_text: str,
+        text_regions: List[Any],
+        case_sensitive: bool = False,
+    ) -> VerificationResult:
+        """Verify that expected text is detected in OCR text regions."""
+        target = expected_text if case_sensitive else expected_text.strip().lower()
+
+        matching = []
+        for region in text_regions:
+            r_text = getattr(region, "text", "") if hasattr(region, "text") else region.get("text", "")
+            compare_text = r_text if case_sensitive else r_text.strip().lower()
+            if target in compare_text:
+                matching.append(r_text)
+
+        passed = len(matching) > 0
+        failure_reason = None if passed else f"Expected text '{expected_text}' not found in {len(text_regions)} OCR text regions."
+
+        return VerificationResult(
+            check_type="ocr_text_present",
+            expected_condition=f"OCR text contains '{expected_text}'",
+            observed_state=matching,
+            passed=passed,
+            failure_reason=failure_reason,
+        )
+
+    def verify_text_absent(
+        self,
+        expected_text: str,
+        text_regions: List[Any],
+        case_sensitive: bool = False,
+    ) -> VerificationResult:
+        """Verify that specific text is absent from OCR text regions."""
+        target = expected_text if case_sensitive else expected_text.strip().lower()
+
+        matching = []
+        for region in text_regions:
+            r_text = getattr(region, "text", "") if hasattr(region, "text") else region.get("text", "")
+            compare_text = r_text if case_sensitive else r_text.strip().lower()
+            if target in compare_text:
+                matching.append(r_text)
+
+        passed = len(matching) == 0
+        failure_reason = None if passed else f"Text '{expected_text}' is unexpectedly present in OCR text regions: {matching}."
+
+        return VerificationResult(
+            check_type="ocr_text_absent",
+            expected_condition=f"OCR text does not contain '{expected_text}'",
+            observed_state=matching,
+            passed=passed,
+            failure_reason=failure_reason,
+        )
+
+    def verify_ui_element(
+        self,
+        ui_elements: List[Any],
+        name: Optional[str] = None,
+        element_type: Optional[str] = None,
+        is_enabled: Optional[bool] = None,
+        is_visible: Optional[bool] = None,
+    ) -> VerificationResult:
+        """Verify native UI element presence and state against expected attributes."""
+        matching = []
+        for el in ui_elements:
+            el_name = getattr(el, "name", "") if hasattr(el, "name") else el.get("name", "")
+            el_type = getattr(el, "element_type", "") if hasattr(el, "element_type") else el.get("element_type", "")
+            el_enabled = getattr(el, "is_enabled", True) if hasattr(el, "is_enabled") else el.get("is_enabled", True)
+            el_visible = getattr(el, "is_visible", True) if hasattr(el, "is_visible") else el.get("is_visible", True)
+
+            if name and name.strip().lower() not in el_name.strip().lower():
+                continue
+            if element_type and element_type.strip().lower() != el_type.strip().lower():
+                continue
+            if is_enabled is not None and el_enabled != is_enabled:
+                continue
+            if is_visible is not None and el_visible != is_visible:
+                continue
+
+            matching.append({
+                "id": getattr(el, "element_id", None) or (el.get("element_id") if isinstance(el, dict) else None),
+                "name": el_name,
+                "type": el_type,
+                "enabled": el_enabled,
+                "visible": el_visible,
+            })
+
+        passed = len(matching) > 0
+        expected_desc = f"name='{name}'" if name else ""
+        if element_type:
+            expected_desc += f", type='{element_type}'"
+        if is_enabled is not None:
+            expected_desc += f", enabled={is_enabled}"
+        if is_visible is not None:
+            expected_desc += f", visible={is_visible}"
+
+        failure_reason = None if passed else f"No UI element matching ({expected_desc.strip(', ')}) found in {len(ui_elements)} detected controls."
+
+        return VerificationResult(
+            check_type="ui_element",
+            expected_condition=f"UI element matching ({expected_desc.strip(', ')})",
+            observed_state=matching,
+            passed=passed,
+            failure_reason=failure_reason,
+        )
+
     def verify_condition(
         self,
         condition: str,
         expected_value: Any,
         screen_state: Optional[ScreenState] = None,
         window_list: Optional[List[Dict[str, Any]]] = None,
+        text_regions: Optional[List[Any]] = None,
+        ui_elements: Optional[List[Any]] = None,
     ) -> VerificationResult:
         """Dispatch a condition check by name."""
         cond_lower = condition.strip().lower()
@@ -163,5 +271,42 @@ class VerificationEngine:
             if not screen_state:
                 raise ValueError("ScreenState required for screen_dimensions check.")
             return self.verify_screen_dimensions(screen_state)
+
+        if cond_lower in ("text_present", "ocr_text_present", "text_exists"):
+            if text_regions is None:
+                raise ValueError("Text regions required for text_present check.")
+            return self.verify_text_present(str(expected_value), text_regions)
+
+        if cond_lower in ("text_absent", "ocr_text_absent", "text_not_present"):
+            if text_regions is None:
+                raise ValueError("Text regions required for text_absent check.")
+            return self.verify_text_absent(str(expected_value), text_regions)
+
+        if cond_lower in ("ui_element_exists", "ui_element", "ui_element_present"):
+            if ui_elements is None:
+                raise ValueError("UI elements required for ui_element check.")
+            if isinstance(expected_value, dict):
+                return self.verify_ui_element(
+                    ui_elements,
+                    name=expected_value.get("name"),
+                    element_type=expected_value.get("type"),
+                    is_enabled=expected_value.get("enabled"),
+                    is_visible=expected_value.get("visible"),
+                )
+            return self.verify_ui_element(ui_elements, name=str(expected_value))
+
+        if cond_lower in ("ui_element_visible",):
+            if ui_elements is None:
+                raise ValueError("UI elements required for ui_element_visible check.")
+            name = expected_value.get("name") if isinstance(expected_value, dict) else str(expected_value)
+            el_type = expected_value.get("type") if isinstance(expected_value, dict) else None
+            return self.verify_ui_element(ui_elements, name=name, element_type=el_type, is_visible=True)
+
+        if cond_lower in ("ui_element_enabled",):
+            if ui_elements is None:
+                raise ValueError("UI elements required for ui_element_enabled check.")
+            name = expected_value.get("name") if isinstance(expected_value, dict) else str(expected_value)
+            el_type = expected_value.get("type") if isinstance(expected_value, dict) else None
+            return self.verify_ui_element(ui_elements, name=name, element_type=el_type, is_enabled=True)
 
         raise ValueError(f"Unknown verification condition: '{condition}'")

@@ -88,6 +88,9 @@ class ScreenCapture:
                     metadata={
                         "monitor_index": mon_idx,
                         "rect": capture_rect,
+                        "width": sct_img.width,
+                        "height": sct_img.height,
+                        "active_window": active_window,
                         "is_windows": self.is_windows,
                     },
                 )

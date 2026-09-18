@@ -44,6 +44,16 @@ from windows_agent.observation.policy import (
 )
 from windows_agent.observation.store import ObservationStore
 from windows_agent.observation.verifier import VerificationEngine
+from windows_agent.vision.cache import VisionCache
+from windows_agent.vision.models import (
+    ScreenOCRParams,
+    ScreenUIElementsParams,
+    ScreenUnderstandParams,
+    ScreenUnderstanding,
+    TextRegion,
+    UIElement,
+)
+from windows_agent.vision.service import VisionService
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +75,8 @@ class CapabilityRegistry:
         screen_capture: Optional[ScreenCapture] = None,
         verification_engine: Optional[VerificationEngine] = None,
         observation_policy: Optional[AdaptiveObservationPolicy] = None,
+        vision_cache: Optional[VisionCache] = None,
+        vision_service: Optional[VisionService] = None,
     ):
         self.agent_version = agent_version
         self.start_time = start_time or time.time()
@@ -81,6 +93,14 @@ class CapabilityRegistry:
         self.capture = screen_capture or ScreenCapture(store=self.store)
         self.verifier = verification_engine or VerificationEngine()
         self.policy = observation_policy or AdaptiveObservationPolicy()
+
+        # Vision Subsystems (Phase 6A)
+        self.vision_cache = vision_cache or VisionCache()
+        self.vision = vision_service or VisionService(
+            capture=self.capture,
+            store=self.store,
+            cache=self.vision_cache,
+        )
 
         self._register_all_capabilities()
 
@@ -301,12 +321,23 @@ class CapabilityRegistry:
             win_result = await self.windows.list_windows(WindowListParams(include_invisible=False))
             window_list = win_result.get("windows", [])
 
+            # If verification condition needs text or UI elements, extract them
+            cond_lower = params.expected_condition.strip().lower()
+            text_regions = None
+            ui_elements = None
+            if any(k in cond_lower for k in ("text", "ocr")):
+                _, text_regions = await self.vision.perform_ocr(post_state.capture_id)
+            if any(k in cond_lower for k in ("ui_element", "control")):
+                _, ui_elements = await self.vision.detect_ui(post_state.capture_id)
+
             # Run deterministic verification check
             verification_res = self.verifier.verify_condition(
                 condition=params.expected_condition,
                 expected_value=params.expected_value,
                 screen_state=post_state,
                 window_list=window_list,
+                text_regions=text_regions,
+                ui_elements=ui_elements,
             )
 
             return {
@@ -325,4 +356,51 @@ class CapabilityRegistry:
             action_verify_handler,
             description="Execute an action capability, observe resulting state, and verify expected condition.",
             validator_cls=ActionVerifyParams,
+        )
+
+        # -------------------------------------------------------------
+        # 8. Vision & Screen Understanding Capabilities (Phase 6A)
+        # -------------------------------------------------------------
+        async def screen_ocr_handler(params: ScreenOCRParams) -> Dict[str, Any]:
+            cid, regions = await self.vision.perform_ocr(params.observation_id)
+            return {
+                "observation_id": cid,
+                "text_regions": [r.model_dump() for r in regions],
+                "count": len(regions),
+            }
+
+        self.register(
+            "screen.ocr",
+            screen_ocr_handler,
+            description="Extract structured text regions and bounding boxes via OCR.",
+            validator_cls=ScreenOCRParams,
+        )
+
+        async def screen_ui_elements_handler(params: ScreenUIElementsParams) -> Dict[str, Any]:
+            cid, elements = await self.vision.detect_ui(
+                observation_id=params.observation_id,
+                window_handle=params.window_handle,
+            )
+            return {
+                "observation_id": cid,
+                "ui_elements": [e.model_dump() for e in elements],
+                "count": len(elements),
+            }
+
+        self.register(
+            "screen.ui_elements",
+            screen_ui_elements_handler,
+            description="Discover native desktop UI controls, bounding boxes, and center coordinates.",
+            validator_cls=ScreenUIElementsParams,
+        )
+
+        async def screen_understand_handler(params: ScreenUnderstandParams) -> Dict[str, Any]:
+            understanding = await self.vision.understand_screen(params.observation_id)
+            return understanding.model_dump()
+
+        self.register(
+            "screen.understand",
+            screen_understand_handler,
+            description="Produce unified structured understanding combining screen state, OCR, and UI elements.",
+            validator_cls=ScreenUnderstandParams,
         )
