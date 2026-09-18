@@ -1,7 +1,7 @@
 """Configuration settings for JARVIS OS Core."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from core.constants import APP_NAME, DEFAULT_HOST, DEFAULT_PORT
+from core.constants import APP_NAME, DEFAULT_HOST, DEFAULT_PORT, DEFAULT_DB_PATH
 
 
 class Settings(BaseSettings):
@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     debug: bool = False
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    database_path: str = DEFAULT_DB_PATH
+    enable_demo_tool: bool = True
 
     model_config = SettingsConfigDict(
         env_prefix="JARVIS_",

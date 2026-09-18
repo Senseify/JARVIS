@@ -12,12 +12,16 @@ JARVIS OS is architected as an autonomous personal AI system structured around a
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
 │                       JARVIS Core                           │
-│  - FastAPI / Uvicorn Server                                 │
+│  - FastAPI / Uvicorn Server & WebSocket Event Bus           │
 │  - Settings & Lifecycle Management                          │
 │  - Agent Loop State Machine (Observe -> Remember)           │
-│  - Future: Memory, Task Manager, Planner, Device Registry   │
+│  - Task Manager & State Transition Validation               │
+│  - Async Agent Runtime & Per-Task Execution Context         │
+│  - Tool / Skill Registry (Generic Abstraction)              │
+│  - Device Registry (Authorized Device Abstraction)          │
+│  - SQLite Persistence (Tasks, Events, Devices)              │
 └──────────────────────────────┬──────────────────────────────┘
-                               │
+                               │ WebSockets / RPC
 ┌──────────────────────────────▼──────────────────────────────┐
 │                   Device Agent Layer                        │
 │  - Windows Agent (Screen, Mouse, Keyboard, Window, Process) │
@@ -43,4 +47,6 @@ The execution flow of any task is governed by 8 formal states:
   - *Rationale*: Python 3.12 provides the most robust, mature pre-built wheel ecosystem across ARM64 (Apple Silicon) and x86_64 (Windows/Linux) for core dependencies including `pydantic-core`, `uvicorn`, and `fastapi`.
 - **API Framework**: FastAPI + Uvicorn standard.
 - **Settings & Validation**: Pydantic v2 + Pydantic-Settings.
-- **Testing**: Pytest + Pytest-Asyncio + HTTPX.
+- **Persistence**: Async-wrapped SQLite3 (thread-pool driven, WAL mode, zero external C-dependencies).
+- **Communication**: REST API for management + WebSockets for real-time streaming runtime events.
+- **Testing**: Pytest + Pytest-Asyncio + HTTPX + Starlette TestClient.
