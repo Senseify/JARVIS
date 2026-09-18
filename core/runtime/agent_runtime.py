@@ -6,17 +6,23 @@ from typing import Any, Dict, Optional
 from core.constants import AgentLoopState, EventType, TaskStatus
 from core.events.bus import EventBus
 from core.models.events import AgentEvent
+from core.models.memory import MemoryType
 from core.models.tasks import Task
 from core.runtime.context import ExecutionContext
 from core.tasks.manager import TaskManager
 from core.tools.registry import ToolRegistry
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.memory.service import MemoryService
 
 logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
-    """Core runtime engine driving the closed-loop agent execution lifecycle:
-    OBSERVE -> UNDERSTAND -> PLAN -> ACT -> VERIFY -> RECOVER -> REMEMBER
+    """Core runtime engine executing tasks through the strict 8-stage agent loop.
+
+    Lifecycle:
+        IDLE -> OBSERVE -> UNDERSTAND -> PLAN -> ACT -> VERIFY -> (RECOVER) -> REMEMBER
     """
 
     def __init__(
@@ -24,10 +30,12 @@ class AgentRuntime:
         task_manager: TaskManager,
         tool_registry: ToolRegistry,
         event_bus: EventBus,
+        memory_service: Optional["MemoryService"] = None,
     ):
         self.task_manager = task_manager
         self.tool_registry = tool_registry
         self.event_bus = event_bus
+        self.memory_service = memory_service
 
     async def execute_task(
         self,
@@ -67,6 +75,16 @@ class AgentRuntime:
             if not verified:
                 recovered = await self._recover_stage(task, context, allow_recovery)
                 if not recovered:
+                    if self.memory_service is not None:
+                        await self.memory_service.store_memory(
+                            content=f"Task failed verification: {task.input}",
+                            memory_type=MemoryType.OUTCOME,
+                            metadata={"task_id": task.id, "verified": False},
+                            source="agent_runtime",
+                            task_id=task.id,
+                            importance=0.8,
+                            tags=["outcome", "failure"],
+                        )
                     error_msg = "Task verification failed and recovery strategy was exhausted."
                     return await self.task_manager.fail_task(task.id, error_msg)
 
@@ -239,9 +257,42 @@ class AgentRuntime:
         context.add_memory("last_task_input", task.input)
         context.add_memory("verification_status", "verified")
 
+        persisted_memory_ids: List[str] = []
+        if self.memory_service is not None:
+            # 1. Store task context
+            ctx_entry, _ = await self.memory_service.store_memory(
+                content=f"Task executed: {task.input}",
+                memory_type=MemoryType.TASK_CONTEXT,
+                metadata={"task_id": task.id},
+                source="agent_runtime",
+                task_id=task.id,
+                importance=0.6,
+                tags=["task", "context"],
+            )
+            persisted_memory_ids.append(ctx_entry.id)
+
+            # 2. Store outcome
+            outcome_entry, _ = await self.memory_service.store_memory(
+                content=f"Task completed successfully: {task.input}",
+                memory_type=MemoryType.OUTCOME,
+                metadata={
+                    "task_id": task.id,
+                    "actions_count": len(context.action_results),
+                    "verifications_count": len(context.verification_results),
+                },
+                source="agent_runtime",
+                task_id=task.id,
+                importance=0.7,
+                tags=["outcome", "success"],
+            )
+            persisted_memory_ids.append(outcome_entry.id)
+
         await self._emit(
             task,
             EventType.MEMORY_STORED,
             AgentLoopState.REMEMBER,
-            {"entries": context.memory_entries},
+            {
+                "entries": context.memory_entries,
+                "persisted_memory_ids": persisted_memory_ids,
+            },
         )

@@ -108,3 +108,54 @@ async def test_verification_failure_with_exhausted_recovery(tmp_path):
     assert "recovery strategy was exhausted" in (failed.error or "")
 
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_remember_stage_persists_memories(tmp_path):
+    """Verify runtime REMEMBER stage stores persistent memories in MemoryService."""
+    from core.memory.service import MemoryService
+    from core.memory.store import MemoryStore
+
+    db = Database(db_path=str(tmp_path / "runtime_memories.db"))
+    await db.connect()
+    bus = EventBus(database=db)
+    tools = ToolRegistry()
+    tools.register_tool(DemoVerificationTool())
+    tasks = TaskManager(database=db, event_bus=bus)
+    store = MemoryStore(database=db)
+    memory_service = MemoryService(store=store)
+
+    runtime = AgentRuntime(
+        task_manager=tasks,
+        tool_registry=tools,
+        event_bus=bus,
+        memory_service=memory_service,
+    )
+
+    # 1. Execute successful task
+    task = await tasks.create_task("Autonomous memory integration task")
+    completed = await runtime.execute_task(task.id)
+    assert completed.status == TaskStatus.COMPLETED
+
+    # Verify memories were persisted for this task
+    task_memories = await memory_service.search_memory(task_id=task.id)
+    assert len(task_memories) == 2
+    types = [m.entry.memory_type.value for m in task_memories]
+    assert "task_context" in types
+    assert "outcome" in types
+
+    # 2. Execute failed task
+    failed_task = await tasks.create_task("Failed task memory test")
+    failed = await runtime.execute_task(
+        failed_task.id,
+        simulate_verification_failure=True,
+        allow_recovery=False,
+    )
+    assert failed.status == TaskStatus.FAILED
+
+    failed_memories = await memory_service.search_memory(task_id=failed_task.id)
+    assert len(failed_memories) == 1
+    assert failed_memories[0].entry.memory_type.value == "outcome"
+    assert "failed" in failed_memories[0].entry.content
+
+    await db.close()

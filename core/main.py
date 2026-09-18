@@ -14,8 +14,17 @@ from core.constants import AgentLoopState
 from core.devices.agent_bridge import AgentBridge
 from core.devices.registry import DeviceRegistry
 from core.events.bus import EventBus
+from core.memory.service import MemoryService
+from core.memory.store import MemoryStore
 from core.models.devices import Device, DeviceCreateRequest
 from core.models.events import AgentEvent
+from core.models.memory import (
+    MemoryCreateRequest,
+    MemoryEntry,
+    MemorySearchResult,
+    MemoryType,
+    MemoryUpdateRequest,
+)
 from core.models.protocol import CommandDispatchRequest, CommandResultPayload
 from core.models.tasks import Task, TaskCreateRequest, TaskStatusResponse
 from core.persistence.database import Database
@@ -38,10 +47,13 @@ class RuntimeContainer:
         self.device_registry = DeviceRegistry(database=self.database)
         self.agent_bridge = AgentBridge(device_registry=self.device_registry)
         self.task_manager = TaskManager(database=self.database, event_bus=self.event_bus)
+        self.memory_store = MemoryStore(database=self.database)
+        self.memory_service = MemoryService(store=self.memory_store)
         self.agent_runtime = AgentRuntime(
             task_manager=self.task_manager,
             tool_registry=self.tool_registry,
             event_bus=self.event_bus,
+            memory_service=self.memory_service,
         )
 
 
@@ -213,6 +225,78 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     @app.get("/tools")
     async def list_tools():
         return rt.tool_registry.list_tools()
+
+    # -------------------------------------------------------------
+    # Memory Endpoints (Phase 6B)
+    # -------------------------------------------------------------
+    @app.post("/memories", status_code=status.HTTP_201_CREATED)
+    async def create_memory(request: MemoryCreateRequest):
+        entry, is_new = await rt.memory_service.store_memory(
+            content=request.content,
+            memory_type=request.memory_type,
+            metadata=request.metadata,
+            source=request.source,
+            task_id=request.task_id,
+            importance=request.importance,
+            tags=request.tags,
+            expires_at=request.expires_at,
+            allow_duplicate=request.allow_duplicate,
+        )
+        return {"memory": entry, "is_new": is_new}
+
+    @app.get("/memories")
+    async def search_memories(
+        q: Optional[str] = None,
+        type: Optional[str] = None,
+        tag: Optional[str] = None,
+        task_id: Optional[str] = None,
+        min_importance: float = 0.0,
+        limit: int = 20,
+    ):
+        tags = [tag] if tag else None
+        return await rt.memory_service.search_memory(
+            query=q,
+            memory_type=type,
+            tags=tags,
+            task_id=task_id,
+            min_importance=min_importance,
+            limit=limit,
+        )
+
+    @app.get("/memories/{memory_id}")
+    async def get_memory(memory_id: str):
+        entry = await rt.memory_service.get_memory(memory_id)
+        if not entry:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Memory '{memory_id}' not found.",
+            )
+        return entry
+
+    @app.patch("/memories/{memory_id}")
+    async def update_memory(memory_id: str, request: MemoryUpdateRequest):
+        updated = await rt.memory_service.update_memory(memory_id, request)
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Memory '{memory_id}' not found.",
+            )
+        return updated
+
+    @app.delete("/memories/{memory_id}")
+    async def delete_memory(memory_id: str):
+        deleted = await rt.memory_service.delete_memory(memory_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Memory '{memory_id}' not found.",
+            )
+        return {"deleted": True, "id": memory_id}
+
+    @app.delete("/memories/task/{task_id}")
+    async def clear_task_memories(task_id: str):
+        count = await rt.memory_service.clear_task_memory(task_id)
+        return {"deleted_count": count, "task_id": task_id}
 
     # -------------------------------------------------------------
     # WebSockets

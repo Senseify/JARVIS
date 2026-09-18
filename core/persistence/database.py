@@ -79,7 +79,26 @@ class Database:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memories (
+                    id TEXT PRIMARY KEY,
+                    memory_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    metadata TEXT,
+                    source TEXT NOT NULL,
+                    task_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    importance REAL NOT NULL,
+                    tags TEXT NOT NULL,
+                    expires_at TEXT
+                )
+                """
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_task_id ON events (task_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_type ON memories (memory_type);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_task_id ON memories (task_id);")
 
     async def connect(self) -> None:
         """Initialize database schema asynchronously."""

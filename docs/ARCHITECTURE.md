@@ -252,14 +252,93 @@ Extends deterministic verification with vision-aware primitives:
 - `screen.ui_elements`: Validates `ScreenUIElementsParams`, discovers native UI controls and coordinates.
 - `screen.understand`: Validates `ScreenUnderstandParams`, returns complete `ScreenUnderstanding`.
 
-## 9. Privacy and Security Model
+## 9. Persistent Memory Engine (Phase 6B)
 
-1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video. Observations and vision analysis are discrete and explicit.
-2. **Controlled Retention**: Image files and vision cache entries exist only in short-lived temporary storage with strict retention pruning.
-3. **Payload Separation**: Large image binaries remain local to the storage layer; only metadata, resolution, window context, and file references are transmitted across Core channels.
-4. **Parameter Validation**: Strict Pydantic schemas forbid unvalidated extra fields and enforce positive bounds on capture coordinates.
+Located in `core/memory/` and `core/models/memory.py`, this subsystem provides a platform-independent, deterministic, persistent memory store that survives JARVIS process restarts.
 
-## 10. Technology Choices
+```
+REST API (/memories) / Runtime (REMEMBER)
+                 │
+                 ▼
+          MemoryService
+  ┌──────────────┴──────────────┐
+  ▼                             ▼
+Deduplication            Deterministic Scoring
+(Normalize & Merge)      (Keywords, Tags, Type, Recency, Importance)
+  └──────────────┬──────────────┘
+                 ▼
+            MemoryStore
+                 │
+                 ▼
+       Async SQLite3 (memories)
+```
+
+### 9.1 Memory Model (`MemoryEntry`)
+- `id`: UUID4 primary key.
+- `memory_type`: Typed category:
+  - `fact`: Factual statements or environment knowledge.
+  - `preference`: User preferences (e.g. themes, modes, habits).
+  - `instruction`: User-provided operating guidelines.
+  - `task_context`: Context, inputs, and environment at task execution.
+  - `observation`: Specific visual or environmental insights.
+  - `outcome`: Results of completed or failed task executions.
+  - `system`: System runtime and configuration notes.
+- `content`: Primary text payload (min length 1, validated with Pydantic).
+- `metadata`: Arbitrary JSON dictionary for structured context.
+- `source`: Originator identifier (e.g. `user`, `agent_runtime`, `system`).
+- `task_id`: Optional association to a specific task.
+- `created_at` & `updated_at`: ISO 8601 UTC timestamps.
+- `importance`: Float between 0.0 and 1.0.
+- `tags`: List of categorical strings for tagging and filtering.
+- `expires_at`: Optional expiration ISO timestamp for ephemeral retention.
+
+### 9.2 Persistent SQLite Storage (`MemoryStore`)
+- Operates on SQLite `memories` table with indexed `memory_type` and `task_id`.
+- Complete CRUD operations: `store`, `get`, `list`, `update`, `delete`, `count`, `clear_by_task`, `clear_all`, and `prune_expired`.
+- Fully persistent across application restarts without external services (no Redis, Postgres, or vector DBs).
+
+### 9.3 Deduplication Engine
+- Avoids memory clutter by detecting identical or equivalent entries using normalized text matching (`LOWER(TRIM(content))`) and category.
+- When duplicate content is submitted:
+  - Updates the `updated_at` timestamp.
+  - Bumps importance to `max(existing.importance, new.importance)`.
+  - Merges new tags and metadata into the existing entry.
+  - Returns `is_new=False` without inserting redundant database rows.
+- Can be explicitly bypassed when duplicate entries are intentionally desired (`allow_duplicate=True`).
+
+### 9.4 Deterministic Relevance Ranking
+Calculates relevance without relying on non-deterministic LLMs or heavy embeddings:
+1. **Keyword Overlap (0.40 max)**: Query token frequency matching in content + exact substring bonus.
+2. **Tag Overlap (0.25 max)**: Ratio of target tags matched against memory entry tags.
+3. **Category Alignment (0.15 max)**: Memory type matching bonus.
+4. **Importance (0.10 max)**: Scaled contribution of entry's importance score.
+5. **Recency Factor (0.10 max)**: Smooth time decay based on elapsed hours since `updated_at`.
+- Deterministic sort order: `relevance_score DESC`, `updated_at DESC`, `id ASC`.
+
+### 9.5 Runtime Integration (`REMEMBER` Stage)
+- Integrated into `AgentRuntime._remember_stage`:
+  - Automatically records `task_context` memory referencing `task.id`.
+  - Automatically records `outcome` memory summarizing action and verification counts upon successful completion.
+  - Automatically records `outcome` failure details if recovery attempts are exhausted.
+  - Selective and concise: avoids memory spam while ensuring critical continuity.
+
+### 9.6 Core REST Endpoints
+- `POST /memories`: Create memory with deduplication.
+- `GET /memories`: Search memories by `q`, `type`, `tag`, `task_id`, `min_importance`, and `limit`.
+- `GET /memories/{id}`: Retrieve single memory.
+- `PATCH /memories/{id}`: Update memory content, importance, tags, or metadata.
+- `DELETE /memories/{id}`: Delete individual memory.
+- `DELETE /memories/task/{task_id}`: Clear memories tied to a specific task.
+
+## 10. Privacy and Security Model
+
+1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video.
+2. **Local-Only Persistence**: Memories and observations reside strictly on the local host SQLite database. No cloud memory, external vector APIs, or third-party telemetry.
+3. **Task Deletion & Retention**: Users can delete memories individually or flush all memories associated with specific tasks.
+4. **Expiration Support**: Ephemeral memories support `expires_at` and are automatically filtered out and pruned.
+5. **Payload Separation**: Large image binaries remain local to the observation layer; memories store text, metadata, and identifiers.
+
+## 11. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
@@ -269,8 +348,9 @@ Extends deterministic verification with vision-aware primitives:
 - **Desktop Automation**: Native Windows User32 via standard library `ctypes` and safe `subprocess` calls.
 - **Screen Awareness**: `mss` screen grab library + PIL/PNG formatting.
 - **Vision Foundation**: Native WinRT Windows Media OCR via PowerShell bridge + User32 child window control inspection.
+- **Memory Engine**: Native SQLite3 schema with deterministic relevance scoring and deduplication.
 
-## 11. Status & Deferred Milestones
+## 12. Status & Deferred Milestones
 
-- **Implemented (Phases 1–6A)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, and unified ScreenUnderstanding.
-- **Strictly Deferred**: LLM vision, autonomous reasoning, autonomous clicking based on vision, long-term memory, custom skills, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
+- **Implemented (Phases 1–6B)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, and AgentRuntime REMEMBER stage integration.
+- **Strictly Deferred**: LLM memory, vector databases, embeddings, autonomous reasoning, autonomous clicking based on vision, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
