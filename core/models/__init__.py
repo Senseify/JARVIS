@@ -15,6 +15,22 @@ from core.models.protocol import (
     RegisterAckPayload,
 )
 
+from core.models.memory import (
+    MemoryCreateRequest,
+    MemoryEntry,
+    MemorySearchResult,
+    MemoryType,
+    MemoryUpdateRequest,
+)
+from core.models.skills import (
+    SkillDefinition,
+    SkillExecuteRequest,
+    SkillExecution,
+    SkillResult,
+    SkillStep,
+    SkillStepResult,
+)
+
 __all__ = [
     "AgentEvent",
     "Task",
@@ -31,4 +47,15 @@ __all__ = [
     "CommandRequestPayload",
     "CommandResultPayload",
     "CommandDispatchRequest",
+    "MemoryType",
+    "MemoryEntry",
+    "MemoryCreateRequest",
+    "MemoryUpdateRequest",
+    "MemorySearchResult",
+    "SkillStep",
+    "SkillDefinition",
+    "SkillStepResult",
+    "SkillExecution",
+    "SkillResult",
+    "SkillExecuteRequest",
 ]

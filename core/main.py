@@ -26,9 +26,17 @@ from core.models.memory import (
     MemoryUpdateRequest,
 )
 from core.models.protocol import CommandDispatchRequest, CommandResultPayload
+from core.models.skills import (
+    SkillDefinition,
+    SkillExecuteRequest,
+    SkillResult,
+)
 from core.models.tasks import Task, TaskCreateRequest, TaskStatusResponse
 from core.persistence.database import Database
 from core.runtime.agent_runtime import AgentRuntime
+from core.skills.builtin import get_builtin_skills
+from core.skills.executor import SkillExecutor
+from core.skills.registry import SkillRegistry
 from core.tasks.manager import TaskManager
 from core.tools.demo import DemoVerificationTool
 from core.tools.registry import ToolRegistry
@@ -53,6 +61,15 @@ class RuntimeContainer:
             task_manager=self.task_manager,
             tool_registry=self.tool_registry,
             event_bus=self.event_bus,
+            memory_service=self.memory_service,
+        )
+        self.skill_registry = SkillRegistry()
+        for builtin in get_builtin_skills():
+            self.skill_registry.register_skill(builtin)
+        self.skill_executor = SkillExecutor(
+            registry=self.skill_registry,
+            agent_bridge=self.agent_bridge,
+            tool_registry=self.tool_registry,
             memory_service=self.memory_service,
         )
 
@@ -297,6 +314,41 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     async def clear_task_memories(task_id: str):
         count = await rt.memory_service.clear_task_memory(task_id)
         return {"deleted_count": count, "task_id": task_id}
+
+    # -------------------------------------------------------------
+    # Skills Endpoints (Phase 6C)
+    # -------------------------------------------------------------
+    @app.get("/skills", response_model=List[SkillDefinition])
+    async def list_skills():
+        return rt.skill_registry.list_skills()
+
+    @app.get("/skills/{skill_id}", response_model=SkillDefinition)
+    async def get_skill(skill_id: str):
+        skill = rt.skill_registry.get_skill(skill_id)
+        if not skill:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Skill '{skill_id}' not found.",
+            )
+        return skill
+
+    @app.post("/skills/{skill_id}/execute", response_model=SkillResult)
+    async def execute_skill(skill_id: str, request: SkillExecuteRequest):
+        if not rt.skill_registry.has_skill(skill_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Skill '{skill_id}' not found.",
+            )
+        try:
+            return await rt.skill_executor.execute(skill_id, request)
+        except KeyError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except TimeoutError as e:
+            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     # -------------------------------------------------------------
     # WebSockets

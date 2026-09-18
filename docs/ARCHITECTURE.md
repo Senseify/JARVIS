@@ -330,15 +330,64 @@ Calculates relevance without relying on non-deterministic LLMs or heavy embeddin
 - `DELETE /memories/{id}`: Delete individual memory.
 - `DELETE /memories/task/{task_id}`: Clear memories tied to a specific task.
 
-## 10. Privacy and Security Model
+## 10. Skills Engine
+
+Located in `core/skills/`, the Skills Engine provides a deterministic, reusable workflow abstraction composing existing capabilities and tools:
+
+```
+Agent → Skill → Tools/Capabilities → Observe → Verify → Result → Remember
+```
+
+A Skill is NOT a new tool or an LLM agent prompt. It is a strictly validated, multi-step deterministic workflow execution engine.
+
+### 10.1 Structured Models
+- **`SkillStep`**: Represents an individual atomic step targeting a capability or tool. Includes `parameters_template` supporting typed variable interpolation (e.g. `{app_name}`), optional `expected_condition`, `expected_value`, per-step `timeout`, and `continue_on_failure` policy.
+- **`SkillDefinition`**: Complete specification including unique `id`, `name`, `description`, `version`, `required_capabilities`, ordered `steps`, overall `timeout`, `verification_requirements`, `input_schema`, and `output_schema`.
+- **`SkillStepResult`**: Execution receipt recording `step_id`, `capability`, `status` (`success`, `failed`, `skipped`), `output`, `error`, `duration_ms`, `verified` flag, and `verification_details`.
+- **`SkillExecution`**: Runtime execution tracking record with UUID `execution_id`, timestamps, step result trail, and persisted memory ID.
+- **`SkillResult`**: Structured response returned to API callers and runtime callers with final status, step receipts, output payload, and duration.
+
+### 10.2 Skill Registry (`SkillRegistry`)
+- Maintains registered skill definitions in-memory.
+- Enforces unique IDs and strictly rejects duplicate registrations.
+- Provides capability inspection: `check_capabilities(skill_id, available_capabilities)` returns whether all prerequisites are met and reports missing capabilities.
+
+### 10.3 Skill Executor (`SkillExecutor`)
+- Coordinates the complete workflow lifecycle:
+  1. Validates inputs against `input_schema`, checking required parameters and assigning defaults.
+  2. Resolves target machine agent and verifies required capabilities are available.
+  3. Recursively interpolates parameter templates preserving primitives (int, bool, float, strings, dicts).
+  4. Dispatches steps sequentially to the target device via `AgentBridge` or local `ToolRegistry`.
+  5. Evaluates verification receipts from `action.verify` or visual checks; halts immediately on failure unless `continue_on_failure` is explicitly enabled.
+  6. Enforces per-step and global execution timeouts.
+  7. Formulates structured `SkillResult`.
+
+### 10.4 Skill ↔ Memory Integration
+- Skills interface with `MemoryService` to persist high-level execution outcomes:
+  - Stores a single `MemoryType.OUTCOME` entry summarizing success or failure reason.
+  - Links associated `task_id` when executed in context of a task.
+  - Strictly avoids spam: individual intermediate steps are **never** stored as permanent memories.
+
+### 10.5 Built-In Skills
+- **`launch_and_verify`**: Launches an allowlisted desktop application (`app.launch`) and verifies window presence (`window_open`).
+- **`type_and_verify`**: Types text into the active foreground window (`keyboard.type`) with optional OCR verification (`text_present`).
+- **`click_and_verify`**: Clicks at specified screen coordinates (`mouse.click`) and verifies desktop/UI condition.
+
+### 10.6 Core REST Endpoints
+- `GET /skills`: List all registered skill definitions.
+- `GET /skills/{skill_id}`: Retrieve a specific skill definition.
+- `POST /skills/{skill_id}/execute`: Execute a skill with input parameters, returning structured `SkillResult`.
+
+## 11. Privacy and Security Model
 
 1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video.
 2. **Local-Only Persistence**: Memories and observations reside strictly on the local host SQLite database. No cloud memory, external vector APIs, or third-party telemetry.
 3. **Task Deletion & Retention**: Users can delete memories individually or flush all memories associated with specific tasks.
 4. **Expiration Support**: Ephemeral memories support `expires_at` and are automatically filtered out and pruned.
 5. **Payload Separation**: Large image binaries remain local to the observation layer; memories store text, metadata, and identifiers.
+6. **Strict Safety Boundaries**: Skills do not execute arbitrary shell commands, unvetted binaries, or unrestricted code. Applications remain strictly bounded to the explicit allowlist.
 
-## 11. Technology Choices
+## 12. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
@@ -349,8 +398,9 @@ Calculates relevance without relying on non-deterministic LLMs or heavy embeddin
 - **Screen Awareness**: `mss` screen grab library + PIL/PNG formatting.
 - **Vision Foundation**: Native WinRT Windows Media OCR via PowerShell bridge + User32 child window control inspection.
 - **Memory Engine**: Native SQLite3 schema with deterministic relevance scoring and deduplication.
+- **Skills Engine**: Deterministic multi-step workflow executor with capability checking, Action → Observe → Verify orchestration, and memory outcome persistence.
 
-## 12. Status & Deferred Milestones
+## 13. Status & Deferred Milestones
 
-- **Implemented (Phases 1–6B)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, and AgentRuntime REMEMBER stage integration.
-- **Strictly Deferred**: LLM memory, vector databases, embeddings, autonomous reasoning, autonomous clicking based on vision, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
+- **Implemented (Phases 1–6C)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), and Core REST skills endpoints (`/skills`).
+- **Strictly Deferred**: LLM reasoning/planning, autonomous agent loops beyond existing runtime, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
