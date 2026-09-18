@@ -25,6 +25,7 @@ from core.skills.executor import SkillExecutor
 from core.tasks.manager import TaskManager
 from core.voice.parser import VoiceCommandParser
 from core.voice.service import VoiceService
+from core.voice.wake_word import VoiceInterruptionController, VoiceState, WakeWordDetector
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ class VoiceCommandService:
         event_bus: Optional[EventBus] = None,
         parser: Optional[VoiceCommandParser] = None,
         reasoning_engine: Any = None,
+        wake_word_detector: Optional[WakeWordDetector] = None,
+        interruption_controller: Optional[VoiceInterruptionController] = None,
     ):
         self.voice_service = voice_service
         self.skill_executor = skill_executor
@@ -53,6 +56,8 @@ class VoiceCommandService:
         self.event_bus = event_bus
         self.parser = parser or VoiceCommandParser()
         self.reasoning_engine = reasoning_engine
+        self.wake_word_detector = wake_word_detector or WakeWordDetector()
+        self.interruption_controller = interruption_controller or VoiceInterruptionController()
 
     async def execute_voice_command(
         self,
@@ -63,7 +68,15 @@ class VoiceCommandService:
         start_time = time.time()
         command_id = f"vcmd_{int(time.time() * 1000)}"
 
-        # 1. Obtain transcript: from text_override or via STT
+        # 1. Handle interruption if JARVIS is currently speaking
+        if self.interruption_controller.is_speaking:
+            self.interruption_controller.interrupt()
+            await self._publish_event(
+                event_type=EventType.VOICE_COMMAND_RECEIVED,
+                payload={"command_id": command_id, "interrupted": True},
+            )
+
+        # 2. Obtain transcript: from text_override or via STT
         transcript = ""
         if request.text_override:
             transcript = request.text_override.strip()
@@ -73,16 +86,21 @@ class VoiceCommandService:
         else:
             raise ValueError("Either voice_input or text_override must be provided.")
 
-        # 2. Publish VOICE_COMMAND_RECEIVED
+        # 3. Optional Wake Word detection and prefix cleaning
+        wake_res = self.wake_word_detector.evaluate(transcript)
+        if wake_res.detected and wake_res.cleaned_command:
+            transcript = wake_res.cleaned_command
+
+        # 4. Publish VOICE_COMMAND_RECEIVED
         await self._publish_event(
             event_type=EventType.VOICE_COMMAND_RECEIVED,
-            payload={"command_id": command_id, "transcript": transcript},
+            payload={"command_id": command_id, "transcript": transcript, "wake_word": wake_res.wake_word_matched},
         )
 
-        # 3. Parse transcript deterministically
+        # 5. Parse transcript deterministically
         intent = self.parser.parse(transcript)
 
-        # 4. Handle unrecognized or empty commands
+        # 6. Handle unrecognized or empty commands
         if intent.intent_type == VoiceCommandIntentType.UNKNOWN or not transcript:
             if request.use_reasoning and self.reasoning_engine and transcript:
                 from core.models.ai import ChatRequest

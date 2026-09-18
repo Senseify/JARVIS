@@ -3,114 +3,438 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JARVIS OS — Intelligence & Execution Hub</title>
-  <meta name="description" content="JARVIS OS - Autonomous, Local-First Personal AI Agent Interface">
+  <title>JARVIS OS — Spatial Intelligence Operating Environment</title>
+  <meta name="description" content="Senseify JARVIS OS - Autonomous, Local-First Personal AI Operating System">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  
+  <!-- Three.js 3D WebGL Library for Procedural Orb -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
   <link rel="stylesheet" href="style.css">
+  <script src="orb.js" defer></script>
 </head>
-<body>
-  <div class="app-layout">
-    <!-- Top System Bar -->
-    <header class="system-bar" id="systemBar">
-      <div class="brand">
-        <div class="brand-logo"></div>
-        <span class="brand-name">JARVIS <span class="badge">OS Core</span></span>
+<body class="spatial-root">
+  <!-- Background Atmospheric Canvas & Overlays -->
+  <canvas id="spatialCanvas" class="spatial-bg-canvas"></canvas>
+  <div class="spatial-vignette"></div>
+  <div class="spatial-grid-overlay"></div>
+
+  <!-- Main Spatial Viewport (mode-home by default) -->
+  <div class="spatial-viewport mode-home" id="spatialViewport">
+    
+    <!-- Top System Telemetry Bar -->
+    <header class="spatial-topbar" id="systemBar">
+      <div class="topbar-left">
+        <div class="brand-crest">
+          <div class="crest-core"></div>
+          <div class="crest-ring"></div>
+        </div>
+        <div class="brand-text-block">
+          <div class="brand-title">JARVIS <span class="brand-sub">SPATIAL OS // v0.1.0</span></div>
+          <div class="brand-meta" id="deviceMeta">AUTONOMOUS LOCAL-FIRST AI OPERATING SYSTEM</div>
+        </div>
       </div>
-      <div class="system-telemetry">
-        <div class="telemetry-pill" id="statusCore">
-          <span class="dot online"></span> Core: Operational
+
+      <div class="topbar-center">
+        <!-- Docked Orb Target Slot for CHAT Mode -->
+        <div class="topbar-orb-slot" id="topbarOrbSlot"></div>
+        <div class="sys-state-badge" id="coreFsmBadge">
+          <span class="pulse-beacon"></span>
+          <span class="fsm-label">AGENT LOOP:</span>
+          <span class="fsm-val" id="coreLoopState">IDLE</span>
         </div>
-        <div class="telemetry-pill" id="statusModel">
-          <span class="dot online"></span> Model: Local Reasoner
-        </div>
-        <div class="telemetry-pill" id="statusDevice">
-          <span class="dot"></span> Agent: Standalone
-        </div>
-        <div class="telemetry-pill" id="statusWs">
-          <span class="dot connecting" id="wsDot"></span> Stream: Connecting
+      </div>
+
+      <div class="topbar-right">
+        <div class="telemetry-deck">
+          <div class="telemetry-node" id="statusCore" title="Core Status">
+            <span class="node-indicator online"></span>
+            <span class="node-tag">CORE</span>
+            <span class="node-val">ONLINE</span>
+          </div>
+          <div class="telemetry-node" id="statusModel" title="Active Model & Engine">
+            <span class="node-indicator online"></span>
+            <span class="node-tag">MODEL</span>
+            <span class="node-val" id="topbarModelName">LOCAL REASONER</span>
+          </div>
+          <div class="telemetry-node" id="statusDevice" title="Host Machine">
+            <span class="node-indicator online"></span>
+            <span class="node-tag">DEVICE</span>
+            <span class="node-val" id="topbarDeviceType">LOCAL HOST</span>
+          </div>
+          <div class="telemetry-node" id="statusWs" title="Live Telemetry Stream">
+            <span class="node-indicator connecting" id="wsDot"></span>
+            <span class="node-tag">STREAM</span>
+            <span class="node-val" id="wsStatusText">CONNECTING</span>
+          </div>
         </div>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="workspace">
-      <!-- Left: Persistent Orb HUD & Live Visualizer -->
-      <section class="orb-container" id="orbPanel">
-        <div class="orb-card">
-          <div class="orb-visualizer">
-            <div class="orb idle" id="jarvisOrb">
-              <div class="orb-core"></div>
-              <div class="orb-ring ring-1"></div>
-              <div class="orb-ring ring-2"></div>
-              <div class="orb-glow"></div>
+    <!-- Center Stage Container -->
+    <div class="spatial-body">
+      
+      <!-- Minimalist Spatial Navigation Rail -->
+      <nav class="spatial-nav-rail" aria-label="Operating Environment Navigation">
+        <div class="rail-spine"></div>
+        <button class="nav-rail-item active" data-tab="spatial-all" title="Spatial Overview">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/>
+          </svg>
+          <span class="rail-label">HOME</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-chat" title="Operations Dialogue">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="rail-label">CHAT</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-tasks" title="Execution Graphs">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <span class="rail-label">TASKS</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-memory" title="Memory & Knowledge">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <ellipse cx="12" cy="5" rx="9" ry="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          <span class="rail-label">MEMORY</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-devices" title="Hardware & Capability Hub">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <rect x="4" y="4" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 16v4M8 20h8"/>
+          </svg>
+          <span class="rail-label">DEVICES</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-skills" title="Skills Engine">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <span class="rail-label">SKILLS</span>
+        </button>
+        <button class="nav-rail-item" data-tab="spatial-system" title="Security & Telemetry Policy">
+          <svg viewBox="0 0 24 24" class="rail-icon">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span class="rail-label">SYSTEM</span>
+        </button>
+      </nav>
+
+      <!-- Spatial Environment Stage -->
+      <main class="spatial-stage">
+        
+        <!-- Left Wing: Real Hardware Subsystems & Virtual Cursor Reticle -->
+        <aside class="spatial-wing wing-left" id="wingLeft">
+          
+          <!-- Subsystems Panel: Real Model, Device, and Engine Telemetry -->
+          <div class="hologram-glass-panel" id="panelSysInfo">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <span class="hologram-notch"></span>
+                <h3 class="panel-title">SUBSYSTEM METRICS</h3>
+              </div>
+              <span class="sys-code">SYS.01 // DIAG</span>
+            </div>
+            
+            <div class="subsystem-grid">
+              <div class="subsystem-cell" id="cellAiCore">
+                <div class="cell-head">
+                  <span class="cell-name">AI CORE</span>
+                  <span class="cell-status-dot online"></span>
+                </div>
+                <div class="cell-value" id="valAiStatus">ACTIVE</div>
+                <div class="cell-detail" id="valModelBackend">Local Reasoner</div>
+              </div>
+
+              <div class="subsystem-cell" id="cellLocalModel">
+                <div class="cell-head">
+                  <span class="cell-name">LOCAL MODEL</span>
+                  <span class="cell-status-dot online"></span>
+                </div>
+                <div class="cell-value" id="valLocalModelName">Auto-Routed</div>
+                <div class="cell-detail" id="valModelEngine">Ollama / In-Process</div>
+              </div>
+
+              <div class="subsystem-cell" id="cellDeviceStatus">
+                <div class="cell-head">
+                  <span class="cell-name">DEVICE STATUS</span>
+                  <span class="cell-status-dot online"></span>
+                </div>
+                <div class="cell-value" id="valDeviceArch">Darwin ARM64</div>
+                <div class="cell-detail" id="valDeviceGpu">Metal Accelerated</div>
+              </div>
+
+              <div class="subsystem-cell" id="cellMemory">
+                <div class="cell-head">
+                  <span class="cell-name">MEMORY ENGINE</span>
+                  <span class="cell-status-dot online"></span>
+                </div>
+                <div class="cell-value" id="valMemCount">0 ENTRIES</div>
+                <div class="cell-detail">SQLite // Persistent</div>
+              </div>
+            </div>
+
+            <!-- Hardware Telemetry Gauge -->
+            <div class="hardware-gauge-bar">
+              <div class="gauge-label">
+                <span>SYSTEM LATENCY</span>
+                <span class="gauge-value" id="valLatency">0.0 ms</span>
+              </div>
+              <div class="gauge-track">
+                <div class="gauge-fill" id="gaugeLatencyFill" style="width: 15%;"></div>
+              </div>
             </div>
           </div>
-          <div class="orb-state-label" id="orbStateText">SYSTEM IDLE</div>
-          <div class="orb-detail-text" id="orbDetailText">Awaiting command or conversational prompt</div>
-        </div>
 
-        <!-- Virtual Cursor Target Overlay -->
-        <div class="virtual-cursor-card" id="virtualCursorCard">
-          <div class="card-title">Virtual Cursor & Target Overlay</div>
-          <div class="cursor-display-area" id="cursorTargetArea">
-            <div class="cursor-crosshair" id="cursorCrosshair" style="display: none;">
-              <div class="crosshair-ring"></div>
-              <div class="crosshair-label" id="crosshairLabel">Target</div>
+          <!-- Virtual Cursor & Spatial Targeting Overlay -->
+          <div class="hologram-glass-panel" id="virtualCursorCard">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <span class="hologram-notch notch-cyan"></span>
+                <h3 class="panel-title">SPATIAL TARGETING RETICLE</h3>
+              </div>
+              <span class="sys-code">CRS.02 // POS</span>
             </div>
-            <div class="target-coords" id="cursorCoords">X: -- | Y: -- (No active target)</div>
-          </div>
-        </div>
 
-        <!-- Execution Plan Inspector -->
-        <div class="plan-card" id="planCard">
-          <div class="card-title">Active Execution Graph</div>
-          <div class="plan-steps-list" id="planStepsList">
-            <div class="step-empty">No active multi-step plan.</div>
-          </div>
-        </div>
-      </section>
+            <div class="cursor-reticle-viewport" id="cursorTargetArea">
+              <div class="reticle-grid"></div>
+              <div class="reticle-center-axes"></div>
+              <div class="reticle-circular-bounds"></div>
 
-      <!-- Right: Conversation & Execution Timeline -->
-      <section class="feed-container">
-        <div class="feed-header">
-          <h2>Autonomous Operations Timeline</h2>
-          <div class="feed-actions">
-            <button class="btn-secondary btn-sm" id="btnRefreshStatus">Refresh Diagnostics</button>
-            <button class="btn-secondary btn-sm" id="btnClearFeed">Clear Log</button>
-          </div>
-        </div>
+              <!-- Animated Crosshair -->
+              <div class="cursor-crosshair" id="cursorCrosshair" style="display: none;">
+                <div class="crosshair-outer-ring"></div>
+                <div class="crosshair-inner-diamond"></div>
+                <div class="crosshair-laser-h"></div>
+                <div class="crosshair-laser-v"></div>
+                <div class="crosshair-label" id="crosshairLabel">TARGET ACQUIRED</div>
+              </div>
 
-        <div class="timeline" id="timelineFeed">
-          <div class="timeline-entry system">
-            <div class="entry-header">
-              <span class="badge-sys">SYSTEM</span>
-              <span class="time">Initialization</span>
+              <div class="cursor-idle-prompt" id="cursorIdlePrompt">NO ACTIVE OS TARGET</div>
             </div>
-            <div class="entry-content">
-              JARVIS OS connected. Local reasoning engine ready. Security verification active.
+
+            <div class="cursor-telemetry-row">
+              <div class="coord-block">
+                <span class="coord-tag">COORDS:</span>
+                <span class="coord-val" id="cursorCoords">X: -- | Y: --</span>
+              </div>
+              <div class="action-block">
+                <span class="action-tag">ACTION:</span>
+                <span class="action-val" id="cursorAction">STANDBY</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Input Bar -->
-        <div class="input-console">
-          <form id="chatForm" class="input-form">
-            <button type="button" class="btn-mic" id="btnMic" title="Toggle Voice Command">
-              <svg viewBox="0 0 24 24" width="20" height="20">
-                <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </aside>
+
+        <!-- Centerpiece: Three.js Procedural Orb & Command Deck -->
+        <section class="spatial-centerpiece" id="centerpieceSection">
+          
+          <div class="orb-spatial-environment" id="orbSpatialEnvironment">
+            <!-- Ambient Volumetric Lighting Behind Orb -->
+            <div class="orb-backdrop-glow" id="orbBackdropGlow"></div>
+
+            <!-- Three.js Procedural Energy Sphere Canvas Container -->
+            <div id="threeOrbContainer" class="three-orb-container"></div>
+
+            <!-- Outer Orbital Markings -->
+            <div class="orb-tech-compass compass-outer">
+              <svg viewBox="0 0 400 400" class="compass-svg">
+                <circle cx="200" cy="200" r="190" fill="none" stroke="rgba(56, 189, 248, 0.15)" stroke-width="1" stroke-dasharray="2 6"/>
+                <circle cx="200" cy="200" r="170" fill="none" stroke="rgba(56, 189, 248, 0.1)" stroke-width="1.5"/>
+                <line x1="200" y1="5" x2="200" y2="15" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5"/>
+                <line x1="200" y1="385" x2="200" y2="395" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5"/>
+                <line x1="5" y1="200" x2="15" y2="200" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5"/>
+                <line x1="385" y1="200" x2="395" y2="200" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5"/>
+                <text x="200" y="28" text-anchor="middle" class="compass-text">000° // SPATIAL OS</text>
+                <text x="375" y="204" text-anchor="end" class="compass-text">090°</text>
+                <text x="200" y="380" text-anchor="middle" class="compass-text">180°</text>
+                <text x="25" y="204" text-anchor="start" class="compass-text">270°</text>
               </svg>
-            </button>
-            <input
-              type="text"
-              id="promptInput"
-              class="prompt-input"
-              placeholder="Give a command (e.g. 'Open Notepad and type hello world') or ask a question..."
-              autocomplete="off"
-            />
-            <button type="submit" class="btn-send" id="btnSend">Execute</button>
-          </form>
-        </div>
-      </section>
-    </main>
+            </div>
+
+            <!-- 7-State Orbital Nodes around the Orb -->
+            <div class="orbital-state-system" id="orbitalStateSystem">
+              <div class="state-node node-observe" id="stateNodeObserve" data-state="observe">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">OBSERVE</span>
+              </div>
+              <div class="state-node node-understand" id="stateNodeUnderstand" data-state="understand">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">UNDERSTAND</span>
+              </div>
+              <div class="state-node node-plan" id="stateNodePlan" data-state="plan">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">PLAN</span>
+              </div>
+              <div class="state-node node-act" id="stateNodeAct" data-state="act">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">ACT</span>
+              </div>
+              <div class="state-node node-verify" id="stateNodeVerify" data-state="verify">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">VERIFY</span>
+              </div>
+              <div class="state-node node-recover" id="stateNodeRecover" data-state="recover">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">RECOVER</span>
+              </div>
+              <div class="state-node node-remember" id="stateNodeRemember" data-state="remember">
+                <div class="node-marker"><span class="marker-core"></span><span class="marker-ping"></span></div>
+                <span class="node-title">REMEMBER</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Central Intelligence Identity Readout -->
+          <div class="orb-identity-block" id="orbIdentityBlock">
+            <div class="spatial-state-tag" id="orbStateText">SYSTEM IDLE</div>
+            <div class="spatial-detail-text" id="orbDetailText">Neural loop synchronized with Core runtime. Ready for prompt.</div>
+          </div>
+
+          <!-- Central Workspace Container for CHAT & other Views -->
+          <div class="spatial-central-workspace" id="centralWorkspace" style="display: none;">
+            <!-- Dynamic view content injected here (CHAT, TASKS, MEMORY, DEVICES, SKILLS, SYSTEM) -->
+            <div class="workspace-scroll-area" id="workspaceScrollArea"></div>
+          </div>
+
+          <!-- Primary Spatial Command Deck -->
+          <section class="spatial-command-surface" id="commandDeck" aria-label="Command Interaction Surface">
+            <div class="command-crest-header">
+              <span class="crest-line"></span>
+              <h2 class="command-prompt-title" id="commandDeckTitle">HOW MAY I ASSIST, SIR?</h2>
+              <span class="crest-line"></span>
+            </div>
+
+            <!-- Waveform Activity Canvas -->
+            <div class="audio-waveform-wrapper" id="waveformWrapper">
+              <canvas id="audioWaveCanvas" class="audio-wave-canvas"></canvas>
+            </div>
+
+            <form id="chatForm" class="spatial-input-console">
+              <!-- Voice Command Activator -->
+              <button type="button" class="btn-spatial-mic" id="btnMic" title="Activate Microphone Input">
+                <div class="mic-glow-ring"></div>
+                <svg viewBox="0 0 24 24" class="mic-icon">
+                  <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                </svg>
+              </button>
+
+              <!-- Text Input Field -->
+              <div class="input-glow-frame">
+                <input
+                  type="text"
+                  id="promptInput"
+                  class="spatial-text-field"
+                  placeholder="Speak or type a command... (e.g. 'Open Notepad and type hello world')"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <span class="input-corner corner-tl"></span>
+                <span class="input-corner corner-tr"></span>
+                <span class="input-corner corner-bl"></span>
+                <span class="input-corner corner-br"></span>
+              </div>
+
+              <!-- Engage / Execute Button -->
+              <button type="submit" class="btn-spatial-engage" id="btnSend">
+                <span class="engage-text">EXECUTE</span>
+                <svg viewBox="0 0 24 24" class="engage-icon">
+                  <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            </form>
+
+            <!-- Fast Tactical Command Chips -->
+            <div class="tactical-chips-shelf">
+              <span class="shelf-label">QUICK PROMPTS:</span>
+              <button class="tactical-chip" data-cmd="Open Notepad and type hello world">"Open Notepad & type hello world"</button>
+              <button class="tactical-chip" data-cmd="Who are you?">"Who are you?"</button>
+              <button class="tactical-chip" data-cmd="Task Status">"Task Status"</button>
+              <button class="tactical-chip" data-cmd="Probe inference engines">"Probe Inference Engines"</button>
+            </div>
+          </section>
+
+        </section>
+
+        <!-- Right Wing: Operations Timeline & Plan Graphs -->
+        <aside class="spatial-wing wing-right" id="wingRight">
+          
+          <!-- Execution Graph Hologram Layer -->
+          <div class="hologram-glass-panel" id="planCard">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <span class="hologram-notch notch-silver"></span>
+                <h3 class="panel-title">ACTIVE EXECUTION GRAPH</h3>
+              </div>
+              <span class="sys-code" id="planIdBadge">PLAN.00 // IDLE</span>
+            </div>
+
+            <div class="plan-steps-container" id="planStepsList">
+              <div class="step-empty-hud">
+                <div class="empty-icon">⬡</div>
+                <div class="empty-text">Awaiting task plan generation</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Operations Timeline Feed -->
+          <div class="hologram-glass-panel panel-flex-feed" id="panelTimeline">
+            <div class="panel-header">
+              <div class="panel-title-group">
+                <span class="hologram-notch notch-cyan"></span>
+                <h3 class="panel-title">OPERATIONS TIMELINE</h3>
+              </div>
+              <div class="feed-controls">
+                <button class="btn-micro" id="btnRefreshStatus" title="Poll System Diagnostics">SYNC</button>
+                <button class="btn-micro" id="btnClearFeed" title="Flush Visual Timeline">FLUSH</button>
+              </div>
+            </div>
+
+            <div class="timeline-spatial-stream" id="timelineFeed">
+              <div class="timeline-entry system">
+                <div class="entry-meta">
+                  <span class="badge-tag sys">CORE</span>
+                  <span class="entry-timestamp">ONLINE</span>
+                </div>
+                <div class="entry-body">
+                  JARVIS spatial operating environment initialized. Three.js procedural engine synchronized with Core runtime.
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </aside>
+
+      </main>
+
+    </div>
+
+    <!-- Bottom Status Strip -->
+    <footer class="spatial-statusbar">
+      <div class="statusbar-left">
+        <span class="mono-label">SECURITY:</span>
+        <span class="mono-val" id="sbSecurity">STRICT ALLOWLIST // ZERO-SHELL</span>
+      </div>
+      <div class="statusbar-center">
+        <span class="mono-label">HOST:</span>
+        <span class="mono-val">127.0.0.1:8000</span>
+        <span class="mono-sep">|</span>
+        <span class="mono-label">ROUTED MODEL:</span>
+        <span class="mono-val" id="sbRoutedModel">Auto-Select</span>
+      </div>
+      <div class="statusbar-right">
+        <span class="mono-label">SESSION:</span>
+        <span class="mono-val" id="sbSessionId">default</span>
+      </div>
+    </footer>
+
   </div>
 
   <script src="app.js"></script>

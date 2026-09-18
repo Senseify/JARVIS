@@ -1,10 +1,11 @@
-"""Tool and skill interfaces for JARVIS OS."""
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, Field
 
-from core.runtime.context import ExecutionContext
+if TYPE_CHECKING:
+    from core.runtime.context import ExecutionContext
 
 
 class ToolDefinition(BaseModel):

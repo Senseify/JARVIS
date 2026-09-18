@@ -55,8 +55,11 @@ from core.voice.command_service import VoiceCommandService
 from core.voice.service import VoiceService
 from core.voice.stt import DeterministicSTTProvider
 from core.voice.tts import DeterministicTTSProvider
+from core.ai.context import ConversationContext
 from core.ai.engine import ReasoningEngine
 from core.ai.manager import ModelManager
+from core.ai.model_router import RoutingDecision, TaskRequirements
+from core.ai.provider import BaseModelProvider
 from core.knowledge.service import KnowledgeService
 from core.models.ai import ChatRequest, ChatResponse, ModelRuntimeInfo
 from core.models.planning import Plan
@@ -162,6 +165,8 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
         if settings.enable_demo_tool:
             rt.tool_registry.register_tool(DemoVerificationTool())
         rt.event_bus.subscribe(broadcast_to_websockets)
+        # Asynchronously probe local inference engines
+        asyncio.create_task(rt.model_manager.discover_engines())
         yield
         # Shutdown
         rt.event_bus.unsubscribe(broadcast_to_websockets)
@@ -478,6 +483,8 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
                 "agent_loop": AgentLoopState.IDLE,
             },
             "model_runtime": active_model_info.model_dump(),
+            "model_intelligence": rt.model_manager.get_system_model_status(),
+            "device_hub": rt.model_manager.device_hub.get_device_capability().model_dump(),
             "voice": {
                 "status": "operational",
                 "stt": rt.voice_service.stt_provider.__class__.__name__,
@@ -548,6 +555,37 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     async def list_plans():
         """List tracked execution plans."""
         return rt.planner.list_plans()
+
+    # -------------------------------------------------------------
+    # Adaptive Model & Device Intelligence Endpoints
+    # -------------------------------------------------------------
+    @app.get("/api/v1/devices/status")
+    async def get_device_status():
+        """Retrieve real hardware capability profile and connected agents."""
+        return rt.model_manager.device_hub.get_device_capability()
+
+    @app.get("/api/v1/models/registry")
+    async def get_model_registry():
+        """Retrieve catalog of discovered models and engine status."""
+        return {
+            "models": [m.model_dump() for m in rt.model_manager.registry.list_models(only_available=False)],
+            "discovery": rt.model_manager.discovery.get_discovery_summary(),
+        }
+
+    @app.post("/api/v1/models/route", response_model=RoutingDecision)
+    async def route_model(requirements: TaskRequirements):
+        """Evaluate task requirements and return chosen local model routing decision."""
+        return rt.model_manager.route_task(requirements)
+
+    @app.post("/api/v1/models/discover")
+    async def trigger_model_discovery():
+        """Trigger an on-demand probe of all local inference engines."""
+        results = await rt.model_manager.discover_engines(force_refresh=True)
+        return {
+            "status": "completed",
+            "engines": results,
+            "registered_models": len(rt.model_manager.registry.list_models(only_available=True)),
+        }
 
     # Mount static web app if directory exists
     web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")

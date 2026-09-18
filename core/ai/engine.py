@@ -8,6 +8,7 @@ import time
 from typing import Any
 from core.ai.context import ConversationContext
 from core.ai.manager import ModelManager
+from core.ai.model_router import TaskRequirements
 from core.ai.vision_reasoning import VisionReasoningAdapter
 from core.devices.agent_bridge import AgentBridge
 from core.constants import EventType, OrbState
@@ -135,9 +136,22 @@ class ReasoningEngine:
         # Add recent conversation turns
         messages.extend(context.messages[-6:])
 
-        # 5. Model Inference
+        # 5. Task-Aware Model Routing & Inference
+        is_code = any(k in resolved_message.lower() for k in ("code", "function", "script", "program", "python"))
+        is_vision = any(k in resolved_message.lower() for k in ("screen", "see", "look", "ocr", "window", "image"))
+        is_fast = len(resolved_message.split()) <= 4
+
+        requirements = TaskRequirements(
+            requires_tools=True,
+            requires_vision=is_vision,
+            requires_coding=is_code,
+            requires_reasoning=True,
+            preferred_latency="fast" if is_fast else "balanced",
+            task_hint=resolved_message[:64],
+        )
+
         model_req = ModelRequest(messages=messages, timeout_seconds=30.0)
-        model_resp = await self.model_manager.generate(model_req)
+        model_resp = await self.model_manager.generate(model_req, requirements=requirements)
 
         if self.event_bus:
             await self.event_bus.publish(

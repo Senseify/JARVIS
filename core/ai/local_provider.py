@@ -56,8 +56,8 @@ class LocalModelProvider(BaseModelProvider):
 
     def get_runtime_info(self) -> ModelRuntimeInfo:
         return ModelRuntimeInfo(
-            model_id=self.model_name,
-            provider_type="local_http",
+            model_id=self.model_name,  # Dynamic: reflects currently configured model
+            provider_type="ollama_local",
             status="ready",
             device="local_inference_server",
             loaded=True,
