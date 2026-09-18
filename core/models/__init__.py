@@ -38,6 +38,13 @@ from core.models.voice import (
     VoiceInput,
     VoiceState,
 )
+from core.models.voice_command import (
+    VoiceCommand,
+    VoiceCommandIntent,
+    VoiceCommandIntentType,
+    VoiceCommandRequest,
+    VoiceCommandResult,
+)
 
 __all__ = [
     "AgentEvent",
@@ -72,4 +79,9 @@ __all__ = [
     "SpeechSynthesisRequest",
     "SpeechSynthesisResult",
     "VoiceState",
+    "VoiceCommandIntentType",
+    "VoiceCommandIntent",
+    "VoiceCommand",
+    "VoiceCommandResult",
+    "VoiceCommandRequest",
 ]

@@ -39,6 +39,10 @@ from core.models.voice import (
     VoiceInput,
     VoiceState,
 )
+from core.models.voice_command import (
+    VoiceCommandRequest,
+    VoiceCommandResult,
+)
 from core.persistence.database import Database
 from core.runtime.agent_runtime import AgentRuntime
 from core.skills.builtin import get_builtin_skills
@@ -47,6 +51,7 @@ from core.skills.registry import SkillRegistry
 from core.tasks.manager import TaskManager
 from core.tools.demo import DemoVerificationTool
 from core.tools.registry import ToolRegistry
+from core.voice.command_service import VoiceCommandService
 from core.voice.service import VoiceService
 from core.voice.stt import DeterministicSTTProvider
 from core.voice.tts import DeterministicTTSProvider
@@ -85,6 +90,15 @@ class RuntimeContainer:
         self.voice_service = VoiceService(
             stt_provider=DeterministicSTTProvider(),
             tts_provider=DeterministicTTSProvider(),
+            event_bus=self.event_bus,
+        )
+        self.voice_command_service = VoiceCommandService(
+            voice_service=self.voice_service,
+            skill_executor=self.skill_executor,
+            task_manager=self.task_manager,
+            agent_bridge=self.agent_bridge,
+            device_registry=self.device_registry,
+            memory_service=self.memory_service,
             event_bus=self.event_bus,
         )
 
@@ -385,6 +399,28 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
     async def speak_text(request: SpeechSynthesisRequest):
         try:
             return await rt.voice_service.speak(request)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    # -------------------------------------------------------------
+    # Voice Command Pipeline Endpoints (Phase 8)
+    # -------------------------------------------------------------
+    @app.post("/voice/command", response_model=VoiceCommandResult)
+    async def execute_voice_command(request: VoiceCommandRequest):
+        try:
+            return await rt.voice_command_service.execute_voice_command(request)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    @app.post("/voice/command/text", response_model=VoiceCommandResult)
+    async def execute_voice_command_text(text: str):
+        try:
+            req = VoiceCommandRequest(text_override=text)
+            return await rt.voice_command_service.execute_voice_command(req)
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:

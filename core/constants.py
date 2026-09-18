@@ -46,6 +46,12 @@ class EventType(str, Enum):
     VOICE_SYNTHESIS_STARTED = "voice_synthesis_started"
     VOICE_SYNTHESIS_COMPLETED = "voice_synthesis_completed"
     VOICE_ERROR = "voice_error"
+    VOICE_COMMAND_RECEIVED = "voice_command_received"
+    VOICE_COMMAND_UNDERSTOOD = "voice_command_understood"
+    VOICE_COMMAND_EXECUTION_STARTED = "voice_command_execution_started"
+    VOICE_COMMAND_EXECUTION_COMPLETED = "voice_command_execution_completed"
+    VOICE_COMMAND_FAILED = "voice_command_failed"
+    VOICE_COMMAND_RESPONSE_READY = "voice_command_response_ready"
 
 
 class DeviceType(str, Enum):

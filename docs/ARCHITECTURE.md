@@ -421,17 +421,83 @@ SpeechSynthesisRequest (Text) ──► Text-to-Speech (TTS) ──► AudioOutp
 - `POST /voice/transcribe`: Transcribe base64-encoded audio payload into text.
 - `POST /voice/speak`: Synthesize text into base64-encoded WAV audio bytes.
 
-## 12. Privacy and Security Model
+## 12. Voice Command Pipeline
+
+Located in `core/voice/command_service.py` and `core/voice/parser.py`, Phase 8 establishes the complete request-driven voice command orchestration pipeline:
+
+```
+VOICE INPUT (VoiceInput audio or text)
+    │
+    ▼
+SPEECH-TO-TEXT (VoiceService.transcribe)
+    │
+    ▼
+DETERMINISTIC COMMAND PARSER (VoiceCommandParser)
+    │
+    ▼
+INTENT ROUTING (SkillExecutor / TaskManager)
+    │
+    ▼
+AGENT EXECUTION (AgentBridge / Capabilities)
+    │
+    ▼
+ACTION VERIFICATION (action.verify receipts)
+    │
+    ▼
+PERSISTENT MEMORY (MemoryService outcome)
+    │
+    ▼
+TEXT-TO-SPEECH (VoiceService.speak response)
+```
+
+### 12.1 Structured Command Models
+- **`VoiceCommandIntentType`**: Enum classifying actionable commands (`APP_LAUNCH`, `KEYBOARD_TYPE`, `KEYBOARD_PRESS`, `MOUSE_MOVE`, `MOUSE_CLICK`, `QUERY_TASK_STATUS`, `QUERY_DEVICES`, `UNKNOWN`).
+- **`VoiceCommandIntent`**: Structured representation capturing intent type, action target, typed parameters, confidence, and matched pattern.
+- **`VoiceCommand`**: Complete parsed voice command with correlation IDs and timestamps.
+- **`VoiceCommandResult`**: Standardized execution outcome containing `status` (`completed`, `failed`, `unrecognized`, `timed_out`), `success`, `execution_result`, `response_text`, `synthesized_audio` (base64 WAV bytes), and `verification_status` (`verified`, `unverified`, `failed`, `not_applicable`).
+- **`VoiceCommandRequest`**: Input request payload supporting audio input (`VoiceInput`) or direct text overrides for testing and client flexibility.
+
+### 12.2 Deterministic Command Understanding (`VoiceCommandParser`)
+- Strictly pattern-matched parsing against allowlisted operations:
+  - App launch: `"open notepad"`, `"open calculator"`, `"open paint"`, `"open explorer"`
+  - Typing: `"type <text>"`, `"enter text <text>"`
+  - Keypresses: `"press enter"`, `"press tab"`, `"press esc"`
+  - Mouse movement: `"move mouse to <x> <y>"`, `"move cursor to <x> <y>"`
+  - Mouse clicking: `"click"`, `"double click"`, `"right click"`
+  - Status queries: `"task status"`, `"what is the status of this task"`
+  - Device queries: `"list devices"`, `"what devices are connected"`
+- Unrecognized, ambiguous, or arbitrary shell commands strictly produce `UNKNOWN` intent with 0.0 confidence, preventing any unintended execution.
+
+### 12.3 Voice Command Service (`VoiceCommandService`)
+- Coordinates the end-to-end execution flow:
+  1. Obtains transcription from `VoiceService`.
+  2. Emits `VOICE_COMMAND_RECEIVED`.
+  3. Parses intent with `VoiceCommandParser`.
+  4. If unrecognized: halts immediately, formulates honest clarification response (`"I didn't understand that command."`), synthesizes spoken response, emits `VOICE_COMMAND_FAILED`, and exits cleanly.
+  5. If recognized: emits `VOICE_COMMAND_UNDERSTOOD`, creates tracked task in `TaskManager`, and emits `VOICE_COMMAND_EXECUTION_STARTED`.
+  6. Dispatches to existing `SkillExecutor` (`launch_and_verify`, `type_and_verify`, `click_and_verify`) or device capabilities via `AgentBridge`.
+  7. Evaluates verification receipts; if an action fails verification, honestly reports failure (`"That action could not be verified."`).
+  8. Updates task status in `TaskManager`.
+  9. Persists a single `MemoryType.OUTCOME` entry in `MemoryService` without intermediate step spam.
+  10. Synthesizes spoken audio response via `VoiceService.speak`.
+  11. Emits `VOICE_COMMAND_EXECUTION_COMPLETED` (or `VOICE_COMMAND_FAILED`) and `VOICE_COMMAND_RESPONSE_READY`.
+
+### 12.4 Core REST Endpoints
+- `POST /voice/command`: Process explicit voice command from audio or text override, returning structured `VoiceCommandResult`.
+- `POST /voice/command/text`: Convenience endpoint accepting query string for direct text-based command dispatch.
+
+## 13. Privacy and Security Model
 
 1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video.
 2. **Local-Only Persistence**: Memories and observations reside strictly on the local host SQLite database. No cloud memory, external vector APIs, or third-party telemetry.
 3. **Task Deletion & Retention**: Users can delete memories individually or flush all memories associated with specific tasks.
 4. **Expiration Support**: Ephemeral memories support `expires_at` and are automatically filtered out and pruned.
 5. **Payload Separation**: Large image binaries remain local to the observation layer; memories store text, metadata, and identifiers.
-6. **Strict Safety Boundaries**: Skills do not execute arbitrary shell commands, unvetted binaries, or unrestricted code. Applications remain strictly bounded to the explicit allowlist.
+6. **Strict Safety Boundaries**: Skills and voice commands do not execute arbitrary shell commands, unvetted binaries, or unrestricted code. Applications remain strictly bounded to the explicit allowlist.
 7. **No Ambient Microphone Snooping**: Voice recognition is request-driven; no always-listening microphone or background audio recording is enabled.
+8. **No Autonomous Voice Loops**: Voice commands execute explicitly per request; no background daemon or autonomous ambient triggering is active.
 
-## 13. Technology Choices
+## 14. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
@@ -444,8 +510,9 @@ SpeechSynthesisRequest (Text) ──► Text-to-Speech (TTS) ──► AudioOutp
 - **Memory Engine**: Native SQLite3 schema with deterministic relevance scoring and deduplication.
 - **Skills Engine**: Deterministic multi-step workflow executor with capability checking, Action → Observe → Verify orchestration, and memory outcome persistence.
 - **Voice Foundation**: Provider-based STT/TTS abstractions with standard library wave/audio packaging and EventBus lifecycle integration.
+- **Voice Command Pipeline**: End-to-end request-driven voice execution connecting STT, deterministic intent parsing, skill execution, honest verification, memory persistence, and spoken TTS feedback.
 
-## 14. Status & Deferred Milestones
+## 15. Status & Deferred Milestones
 
-- **Implemented (Phases 1–7)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), Core REST skills endpoints (`/skills`), Voice models (`VoiceInput`, `SpeechRecognitionResult`, `SpeechSynthesisRequest`, `SpeechSynthesisResult`, `VoiceState`), AudioInput/AudioOutput abstractions, BaseSTTProvider, DeterministicSTTProvider, BaseTTSProvider, DeterministicTTSProvider with genuine WAV audio synthesis, VoiceService with EventBus lifecycle notifications, and Core REST voice endpoints (`/voice`).
-- **Strictly Deferred**: Wake word detection, always-listening microphone, autonomous voice command execution loop, LLM voice reasoning, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
+- **Implemented (Phases 1–8)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), Core REST skills endpoints (`/skills`), Voice models (`VoiceInput`, `SpeechRecognitionResult`, `SpeechSynthesisRequest`, `SpeechSynthesisResult`, `VoiceState`), AudioInput/AudioOutput abstractions, BaseSTTProvider, DeterministicSTTProvider, BaseTTSProvider, DeterministicTTSProvider with genuine WAV audio synthesis, VoiceService with EventBus lifecycle notifications, Core REST voice endpoints (`/voice`), VoiceCommand models (`VoiceCommandIntent`, `VoiceCommand`, `VoiceCommandResult`, `VoiceCommandRequest`), deterministic VoiceCommandParser, VoiceCommandService orchestrator, and Core REST voice command endpoints (`/voice/command`).
+- **Strictly Deferred**: Wake word detection, always-listening microphone, continuous ambient recording, autonomous agent loop triggers from ambient voice, LLM voice reasoning, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
