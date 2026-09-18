@@ -42,6 +42,7 @@ class VoiceCommandService:
         memory_service: Optional[MemoryService] = None,
         event_bus: Optional[EventBus] = None,
         parser: Optional[VoiceCommandParser] = None,
+        reasoning_engine: Any = None,
     ):
         self.voice_service = voice_service
         self.skill_executor = skill_executor
@@ -51,6 +52,7 @@ class VoiceCommandService:
         self.memory_service = memory_service
         self.event_bus = event_bus
         self.parser = parser or VoiceCommandParser()
+        self.reasoning_engine = reasoning_engine
 
     async def execute_voice_command(
         self,
@@ -82,6 +84,35 @@ class VoiceCommandService:
 
         # 4. Handle unrecognized or empty commands
         if intent.intent_type == VoiceCommandIntentType.UNKNOWN or not transcript:
+            if request.use_reasoning and self.reasoning_engine and transcript:
+                from core.models.ai import ChatRequest
+                chat_resp = await self.reasoning_engine.process_chat(
+                    ChatRequest(message=transcript, session_id="voice", device_id=request.device_id)
+                )
+                response_text = chat_resp.message
+                audio_b64 = None
+                if request.synthesize_response and response_text:
+                    try:
+                        synth_res = await self.voice_service.speak(SpeechSynthesisRequest(text=response_text))
+                        audio_b64 = synth_res.audio_base64
+                    except Exception as e:
+                        logger.warning(f"Failed to synthesize voice response: {e}")
+
+                duration_ms = round((time.time() - start_time) * 1000, 2)
+                is_err = response_text.startswith("Action prohibited")
+                return VoiceCommandResult(
+                    command_id=command_id,
+                    transcript=transcript,
+                    intent=intent,
+                    status="completed" if not is_err else "failed",
+                    success=not is_err,
+                    response_text=response_text,
+                    synthesized_audio=audio_b64,
+                    verification_status="verified" if chat_resp.requires_action else "not_applicable",
+                    duration_ms=duration_ms,
+                    error=response_text if is_err else None,
+                )
+
             response_text = "I didn't understand that command."
             audio_b64 = None
             if request.synthesize_response:

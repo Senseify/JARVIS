@@ -80,3 +80,4 @@ class VoiceCommandRequest(BaseModel):
     device_id: Optional[str] = Field(default=None, description="Target machine agent device ID")
     task_id: Optional[str] = Field(default=None, description="Optional caller-provided task correlation ID")
     synthesize_response: bool = Field(default=True, description="Whether to synthesize a spoken audio response")
+    use_reasoning: bool = Field(default=False, description="Whether to route through ReasoningEngine")

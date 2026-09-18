@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS OS — Intelligence & Execution Hub</title>
+  <meta name="description" content="JARVIS OS - Autonomous, Local-First Personal AI Agent Interface">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top System Bar -->
+    <header class="system-bar" id="systemBar">
+      <div class="brand">
+        <div class="brand-logo"></div>
+        <span class="brand-name">JARVIS <span class="badge">OS Core</span></span>
+      </div>
+      <div class="system-telemetry">
+        <div class="telemetry-pill" id="statusCore">
+          <span class="dot online"></span> Core: Operational
+        </div>
+        <div class="telemetry-pill" id="statusModel">
+          <span class="dot online"></span> Model: Local Reasoner
+        </div>
+        <div class="telemetry-pill" id="statusDevice">
+          <span class="dot"></span> Agent: Standalone
+        </div>
+        <div class="telemetry-pill" id="statusWs">
+          <span class="dot connecting" id="wsDot"></span> Stream: Connecting
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Left: Persistent Orb HUD & Live Visualizer -->
+      <section class="orb-container" id="orbPanel">
+        <div class="orb-card">
+          <div class="orb-visualizer">
+            <div class="orb idle" id="jarvisOrb">
+              <div class="orb-core"></div>
+              <div class="orb-ring ring-1"></div>
+              <div class="orb-ring ring-2"></div>
+              <div class="orb-glow"></div>
+            </div>
+          </div>
+          <div class="orb-state-label" id="orbStateText">SYSTEM IDLE</div>
+          <div class="orb-detail-text" id="orbDetailText">Awaiting command or conversational prompt</div>
+        </div>
+
+        <!-- Virtual Cursor Target Overlay -->
+        <div class="virtual-cursor-card" id="virtualCursorCard">
+          <div class="card-title">Virtual Cursor & Target Overlay</div>
+          <div class="cursor-display-area" id="cursorTargetArea">
+            <div class="cursor-crosshair" id="cursorCrosshair" style="display: none;">
+              <div class="crosshair-ring"></div>
+              <div class="crosshair-label" id="crosshairLabel">Target</div>
+            </div>
+            <div class="target-coords" id="cursorCoords">X: -- | Y: -- (No active target)</div>
+          </div>
+        </div>
+
+        <!-- Execution Plan Inspector -->
+        <div class="plan-card" id="planCard">
+          <div class="card-title">Active Execution Graph</div>
+          <div class="plan-steps-list" id="planStepsList">
+            <div class="step-empty">No active multi-step plan.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Conversation & Execution Timeline -->
+      <section class="feed-container">
+        <div class="feed-header">
+          <h2>Autonomous Operations Timeline</h2>
+          <div class="feed-actions">
+            <button class="btn-secondary btn-sm" id="btnRefreshStatus">Refresh Diagnostics</button>
+            <button class="btn-secondary btn-sm" id="btnClearFeed">Clear Log</button>
+          </div>
+        </div>
+
+        <div class="timeline" id="timelineFeed">
+          <div class="timeline-entry system">
+            <div class="entry-header">
+              <span class="badge-sys">SYSTEM</span>
+              <span class="time">Initialization</span>
+            </div>
+            <div class="entry-content">
+              JARVIS OS connected. Local reasoning engine ready. Security verification active.
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Bar -->
+        <div class="input-console">
+          <form id="chatForm" class="input-form">
+            <button type="button" class="btn-mic" id="btnMic" title="Toggle Voice Command">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              </svg>
+            </button>
+            <input
+              type="text"
+              id="promptInput"
+              class="prompt-input"
+              placeholder="Give a command (e.g. 'Open Notepad and type hello world') or ask a question..."
+              autocomplete="off"
+            />
+            <button type="submit" class="btn-send" id="btnSend">Execute</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

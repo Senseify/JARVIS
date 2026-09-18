@@ -102,5 +102,64 @@ JARVIS OS is structured in modular layers:
 ## 6. Runtime & Environment Requirements
 
 - **Python Version**: `>=3.11, <3.14` (Recommended: **Python 3.12** for optimal ecosystem and wheel stability).
-- **Core Stack**: FastAPI, Uvicorn, Pydantic v2, SQLite, Pytest.
-- **Future UI Stack**: Tauri, React, TypeScript, Tailwind.
+- **Core Stack**: FastAPI, Uvicorn, Pydantic v2, SQLite, Pytest, WebSockets.
+- **Product Web Interface**: Vanilla HTML5, CSS3, and ES6 JavaScript with dark cinematic HUD aesthetic (Zero frontend build tools required to run).
+
+---
+
+## 7. Local-First AI Reasoning (No API Key Required)
+
+JARVIS OS is designed from the ground up to operate **without any mandatory commercial API keys**:
+
+1. **Embedded Deterministic Reasoner**: Out of the box, JARVIS runs with an embedded zero-dependency local reasoner that extracts structured multi-step desktop automation plans and answers conversational queries instantly.
+2. **Local Model Servers (Ollama, llama.cpp, vLLM)**:
+   - Install Ollama from [ollama.ai](https://ollama.ai).
+   - Download and run an open-weight model:
+     ```bash
+     ollama run llama3.2:latest
+     ```
+   - JARVIS Core automatically connects to `http://localhost:11434/v1` via `LocalModelProvider`.
+   - Switch active provider via `POST /ai/models/select?name=ollama_local` or directly through the UI.
+
+---
+
+## 8. Launching JARVIS OS & Web Interface
+
+1. **Install Dependencies**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -e .
+   ```
+
+2. **Start JARVIS Core**:
+   ```bash
+   python -m core.main
+   ```
+   Or:
+   ```bash
+   uvicorn core.main:app --host 127.0.0.1 --port 8000
+   ```
+
+3. **Access the Product Web Interface**:
+   Open `http://localhost:8000/` or `http://localhost:8000/ui/` in any modern browser.
+   - **Persistent Dynamic Orb**: Real-time visualization of agent states (`IDLE`, `THINKING`, `PLANNING`, `ACTING`, `VERIFYING`, `RECOVERING`, `SUCCESS`, `ERROR`).
+   - **Virtual Cursor Overlay**: Displays target coordinate markers and element bounding highlights during desktop automation.
+   - **Live Telemetry Timeline**: Streams real-time thoughts, plan steps, and verification receipts.
+
+---
+
+## 9. Running Automated Tests
+
+Run the full deterministic test suite:
+```bash
+pytest
+```
+To run specific subsystems:
+```bash
+pytest tests/test_ai_runtime.py
+pytest tests/test_security_policy.py
+pytest tests/test_planner_recovery.py
+pytest tests/test_e2e_intelligence.py
+```
+

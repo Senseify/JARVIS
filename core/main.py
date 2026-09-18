@@ -55,6 +55,17 @@ from core.voice.command_service import VoiceCommandService
 from core.voice.service import VoiceService
 from core.voice.stt import DeterministicSTTProvider
 from core.voice.tts import DeterministicTTSProvider
+from core.ai.engine import ReasoningEngine
+from core.ai.manager import ModelManager
+from core.knowledge.service import KnowledgeService
+from core.models.ai import ChatRequest, ChatResponse, ModelRuntimeInfo
+from core.models.planning import Plan
+from core.planning.planner import AutonomousPlanner
+from core.planning.recovery import RecoveryEngine
+from core.security.policy import SecurityPolicyEngine
+import os
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +103,26 @@ class RuntimeContainer:
             tts_provider=DeterministicTTSProvider(),
             event_bus=self.event_bus,
         )
+        self.model_manager = ModelManager()
+        self.security_policy = SecurityPolicyEngine()
+        self.recovery_engine = RecoveryEngine(event_bus=self.event_bus)
+        self.planner = AutonomousPlanner(
+            security_policy=self.security_policy,
+            tool_registry=self.tool_registry,
+        )
+        self.knowledge_service = KnowledgeService()
+        self.reasoning_engine = ReasoningEngine(
+            model_manager=self.model_manager,
+            planner=self.planner,
+            recovery_engine=self.recovery_engine,
+            security_policy=self.security_policy,
+            memory_service=self.memory_service,
+            knowledge_service=self.knowledge_service,
+            skill_executor=self.skill_executor,
+            agent_bridge=self.agent_bridge,
+            task_manager=self.task_manager,
+            event_bus=self.event_bus,
+        )
         self.voice_command_service = VoiceCommandService(
             voice_service=self.voice_service,
             skill_executor=self.skill_executor,
@@ -100,6 +131,7 @@ class RuntimeContainer:
             device_registry=self.device_registry,
             memory_service=self.memory_service,
             event_bus=self.event_bus,
+            reasoning_engine=self.reasoning_engine,
         )
 
 
@@ -425,6 +457,106 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    # -------------------------------------------------------------
+    # System Status & Diagnostics Endpoints (Phases 9-16)
+    # -------------------------------------------------------------
+    @app.get("/system/status")
+    async def get_system_status():
+        """Comprehensive system diagnostics for JARVIS Core."""
+        active_model_info = rt.model_manager.get_active_info()
+        connected_devices = rt.agent_bridge.list_connected_devices()
+        skills = [s.name for s in rt.skill_registry.list_skills()]
+        tools = [t.name for t in rt.tool_registry.list_tools()]
+        memory_count = await rt.memory_store.count()
+
+        return {
+            "status": "operational",
+            "version": __version__,
+            "core": {
+                "running": True,
+                "agent_loop": AgentLoopState.IDLE,
+            },
+            "model_runtime": active_model_info.model_dump(),
+            "voice": {
+                "status": "operational",
+                "stt": rt.voice_service.stt_provider.__class__.__name__,
+                "tts": rt.voice_service.tts_provider.__class__.__name__,
+            },
+            "memory": {
+                "status": "operational",
+                "total_entries": memory_count,
+            },
+            "connected_agents": connected_devices,
+            "available_skills": skills,
+            "registered_tools": tools,
+            "security": {
+                "allowlisted_apps": rt.security_policy.config.allowlisted_apps,
+                "blocked_tools_count": len(rt.security_policy.config.blocked_tools),
+            },
+        }
+
+    @app.get("/system/security/policy")
+    async def get_security_policy():
+        """Retrieve active security policy rules and allowlists."""
+        return {
+            "allowlisted_apps": rt.security_policy.config.allowlisted_apps,
+            "blocked_tools": rt.security_policy.config.blocked_tools,
+            "max_typing_length": rt.security_policy.config.max_typing_length,
+            "allow_remote_control": rt.security_policy.config.allow_remote_control,
+        }
+
+    # -------------------------------------------------------------
+    # AI & Reasoning Endpoints (Phases 9-16)
+    # -------------------------------------------------------------
+    @app.post("/ai/chat", response_model=ChatResponse)
+    async def ai_chat(request: ChatRequest):
+        """Process conversational or desktop automation task request."""
+        try:
+            return await rt.reasoning_engine.process_chat(request)
+        except Exception as e:
+            logger.error("AI chat error: %s", e)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    @app.get("/ai/models", response_model=List[ModelRuntimeInfo])
+    async def list_models():
+        """List registered local model providers."""
+        return rt.model_manager.list_providers()
+
+    @app.post("/ai/models/select")
+    async def select_model(name: str):
+        """Switch active model provider."""
+        try:
+            rt.model_manager.set_active_provider(name)
+            return {"active_provider": name, "info": rt.model_manager.get_active_info()}
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    @app.post("/ai/plan", response_model=Plan)
+    async def create_plan(goal: str, tools: list[dict]):
+        """Explicitly construct a validated multi-step plan."""
+        from core.models.ai import ToolCallDefinition
+        try:
+            tool_calls = [ToolCallDefinition(tool=t.get("tool", ""), arguments=t.get("arguments", {})) for t in tools]
+            return rt.planner.create_plan_from_tool_calls(goal=goal, tool_calls=tool_calls)
+        except PermissionError as e:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    @app.get("/ai/plans", response_model=List[Plan])
+    async def list_plans():
+        """List tracked execution plans."""
+        return rt.planner.list_plans()
+
+    # Mount static web app if directory exists
+    web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
+    if os.path.exists(web_dir):
+        app.mount("/ui", StaticFiles(directory=web_dir, html=True), name="web_ui")
+
+        @app.get("/", include_in_schema=False)
+        async def root_redirect():
+            return RedirectResponse(url="/ui/")
 
     # -------------------------------------------------------------
     # WebSockets

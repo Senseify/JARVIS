@@ -45,6 +45,29 @@ from core.models.voice_command import (
     VoiceCommandRequest,
     VoiceCommandResult,
 )
+from core.models.ai import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ModelCapabilities,
+    ModelRequest,
+    ModelResponse,
+    ModelRole,
+    ModelRuntimeInfo,
+    ToolCallDefinition,
+)
+from core.models.security import (
+    ActionPolicyEvaluation,
+    RiskLevel,
+    SecurityPolicyConfig,
+)
+from core.models.planning import (
+    FailureClassification,
+    Plan,
+    PlanStatus,
+    PlanStep,
+    StepStatus,
+)
 
 __all__ = [
     "AgentEvent",
@@ -84,4 +107,21 @@ __all__ = [
     "VoiceCommand",
     "VoiceCommandResult",
     "VoiceCommandRequest",
+    "ModelRole",
+    "ToolCallDefinition",
+    "ChatMessage",
+    "ModelCapabilities",
+    "ModelRuntimeInfo",
+    "ModelRequest",
+    "ModelResponse",
+    "ChatRequest",
+    "ChatResponse",
+    "RiskLevel",
+    "ActionPolicyEvaluation",
+    "SecurityPolicyConfig",
+    "PlanStatus",
+    "StepStatus",
+    "FailureClassification",
+    "PlanStep",
+    "Plan",
 ]

@@ -486,33 +486,146 @@ TEXT-TO-SPEECH (VoiceService.speak response)
 - `POST /voice/command`: Process explicit voice command from audio or text override, returning structured `VoiceCommandResult`.
 - `POST /voice/command/text`: Convenience endpoint accepting query string for direct text-based command dispatch.
 
-## 13. Privacy and Security Model
+## 13. Local AI Model Runtime & Provider Architecture
+
+JARVIS OS is architected to operate with **zero mandatory commercial API keys**. Primary intelligence runs local-first, model-agnostic, and completely offline:
+
+```
+                  ┌───────────────────────────────┐
+                  │       Reasoning Engine        │
+                  └───────────────┬───────────────┘
+                                  │
+                  ┌───────────────▼───────────────┐
+                  │         Model Manager         │
+                  └───────────────┬───────────────┘
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         │                        │                        │
+┌────────▼──────────────┐ ┌───────▼──────────────┐ ┌───────▼──────────────┐
+│ Deterministic Local   │ │  Local Model Server  │ │ Optional Cloud       │
+│ Reasoner (Embedded)   │ │  (Ollama/llama.cpp)  │ │ Provider (Adapter)   │
+│ - Zero network        │ │ - Open-weight LLMs   │ │ - Non-mandatory      │
+│ - 100% offline & fast │ │ - Tool call parsing  │ │ - API optional       │
+└───────────────────────┘ └──────────────────────┘ └──────────────────────┘
+```
+
+- **`BaseModelProvider`**: Abstract contract enforcing `generate()`, `generate_stream()`, `get_capabilities()`, and `check_health()`.
+- **`LocalModelProvider`**: Direct client to local OpenAI-compatible inference servers (e.g. Ollama at `http://localhost:11434/v1`, llama.cpp, LocalAI, vLLM). No cloud network traffic or API key required.
+- **`DeterministicLocalProvider`**: Built-in zero-dependency deterministic reasoner ensuring testability, instant startup, and predictable multi-step tool extraction without downloading multi-gigabyte models.
+- **`ModelManager`**: Coordinates model discovery, active model switching, runtime telemetry, context limits, and health diagnostics.
+
+## 14. Central Intelligence & Reasoning Engine
+
+The `ReasoningEngine` acts as the primary coordinator for the central JARVIS control loop:
+```
+OBSERVE → UNDERSTAND → PLAN → ACT → VERIFY → RECOVER → REMEMBER → RESPOND
+```
+
+### 14.1 Separation of Concerns: Conversation vs. Action Execution
+- **Pure Conversation**: General questions, system inquiries, or conversational turns produce natural language responses without touching desktop controllers or tools.
+- **Action Execution**: Multi-step requests ("Open Notepad and write hello world") generate validated structured tool calls passed to the `AutonomousPlanner`.
+- **Conversational Context**: `ConversationContext` maintains bounded turn history and performs pronoun resolution (e.g., "Open Notepad" followed by "Type hello into it" resolves "it" to Notepad).
+
+### 14.2 Memory Relevance Filtering
+Before planning, the engine queries `MemoryService.search_memory()` for relevant facts and user preferences. After plan completion, it writes exactly one `MemoryType.OUTCOME` entry, preventing intermediate conversational spam or raw screenshot dumps.
+
+## 15. Centralized Security Policy & Risk Evaluation
+
+The model is **never trusted as inherently safe** and **never given arbitrary shell/code access**:
+- **`SecurityPolicyEngine`**: Evaluates every tool call against strict risk categories:
+  - `READ_ONLY`: Screen observation, window listing, OCR, verification.
+  - `LOW_RISK`: Launching allowlisted desktop applications (`notepad`, `calc`, `mspaint`, `explorer`, `chrome`, `edge`, `code`).
+  - `MEDIUM_RISK`: Keyboard typing within character limits (`max_typing_length`), mouse navigation and clicks.
+  - `HIGH_RISK`: Sensitive actions requiring explicit confirmation.
+  - `BLOCKED`: Arbitrary shell execution (`cmd.exe`, `powershell`, `bash`, `eval`, `system.exec`) or non-allowlisted executables.
+
+## 16. Autonomous Multi-Step Planner & Recovery Engine
+
+- **`AutonomousPlanner`**:
+  - Decomposes goals into a directed dependency graph of `PlanStep`s.
+  - Attaches automated verification checkpoints to state-mutating actions.
+  - Validates argument schemas and evaluates steps against the security policy before execution begins.
+- **`RecoveryEngine`**:
+  - Classifies failures into structured types: `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `VERIFICATION_FAILED`, `TIMEOUT`, `POLICY_BLOCKED`.
+  - Implements bounded safe retries up to `max_retries` with screen re-observation and window re-focusing.
+  - Enforces cancellation tokens and reports honest failure when recovery limits are exceeded—never faking success.
+
+## 17. Vision-Assisted Computer Reasoning & Fallback
+
+- **`VisionReasoningAdapter`**:
+  - Upgrades screen awareness by formatting foreground window titles, OCR text regions, and native UI element trees into structured context.
+  - **Graceful Fallback**: If a local multimodal vision model is available, multimodal image inputs are formatted; if not installed, cleanly falls back to structured OCR & accessibility text without claiming fake vision.
+
+## 18. Product Web Interface, Persistent Orb HUD & Virtual Cursor
+
+A dedicated, premium client layer served directly from `web/` and accessible at `/ui/`:
+- **Real-Time WebSocket Sync**: Connects to `/ws/events` and reflects actual backend runtime events.
+- **Persistent JARVIS Orb**: Dynamically indicates exact core states: `IDLE`, `LISTENING`, `THINKING`, `PLANNING`, `ACTING`, `VERIFYING`, `RECOVERING`, `SUCCESS`, `ERROR`.
+- **Virtual Cursor Overlay**: Displays coordinate crosshairs and target bounding indicators driven by genuine `VIRTUAL_CURSOR_MOVED` events.
+- **Diagnostics & Status**: Real-time telemetry displaying active model runtime, connected agents, memory count, and execution plans.
+
+## 19. Hardware Recommendations & Local Model Setup
+
+### 19.1 Recommended Hardware Tiers
+- **Tier 1 (Minimum / CPU Fallback)**:
+  - 8 GB RAM, 4 CPU cores.
+  - Uses embedded `DeterministicLocalProvider` or quantized 1B–3B models (e.g. `llama3.2:1b`, `qwen2.5:1.5b`).
+- **Tier 2 (Standard Local Inference)**:
+  - 16 GB RAM, Apple Silicon (M1/M2/M3/M4) or 6GB+ VRAM NVIDIA GPU (RTX 3060/4060).
+  - Recommended models: `llama3.2:3b`, `mistral:7b`, `qwen2.5:7b` via Ollama.
+- **Tier 3 (High-Capability Agentic Reasoning)**:
+  - 32 GB+ RAM, 12GB+ VRAM (RTX 3090/4080/4090 or Apple Silicon 32GB+).
+  - Recommended models: `llama3.1:8b`, `qwen2.5:14b` with native tool-calling support.
+
+### 19.2 Setting Up Local Model Server (Ollama Example)
+1. Install Ollama from [ollama.ai](https://ollama.ai).
+2. Pull an open-weight model:
+   ```bash
+   ollama run llama3.2:latest
+   ```
+3. Start JARVIS OS Core. The `LocalModelProvider` will automatically connect to `http://localhost:11434/v1`.
+4. Switch to Ollama via `POST /ai/models/select?name=ollama_local` or the UI dashboard.
+
+## 20. Privacy and Security Model
 
 1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video.
 2. **Local-Only Persistence**: Memories and observations reside strictly on the local host SQLite database. No cloud memory, external vector APIs, or third-party telemetry.
-3. **Task Deletion & Retention**: Users can delete memories individually or flush all memories associated with specific tasks.
-4. **Expiration Support**: Ephemeral memories support `expires_at` and are automatically filtered out and pruned.
-5. **Payload Separation**: Large image binaries remain local to the observation layer; memories store text, metadata, and identifiers.
-6. **Strict Safety Boundaries**: Skills and voice commands do not execute arbitrary shell commands, unvetted binaries, or unrestricted code. Applications remain strictly bounded to the explicit allowlist.
-7. **No Ambient Microphone Snooping**: Voice recognition is request-driven; no always-listening microphone or background audio recording is enabled.
-8. **No Autonomous Voice Loops**: Voice commands execute explicitly per request; no background daemon or autonomous ambient triggering is active.
+3. **Zero Arbitrary Shell Access**: The model can never execute arbitrary commands outside the approved tool registry and application allowlist.
+4. **Task Deletion & Retention**: Users can delete memories individually or flush all memories associated with specific tasks.
+5. **No Ambient Microphone Snooping**: Voice recognition is request-driven; no always-listening microphone or background audio recording is enabled.
 
-## 14. Technology Choices
+## 21. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
 - **Validation**: Pydantic v2 schemas for all payloads and envelopes.
 - **Persistence**: Async SQLite3 (thread-pool driven, WAL mode, zero external C-dependencies).
 - **Communication**: REST API for management + WebSockets for client events (`/ws/events`) and agent coordination (`/ws/agent`).
+- **AI Runtime**: Model-agnostic abstraction supporting local HTTP backends (Ollama/llama.cpp) and deterministic embedded fallback.
 - **Desktop Automation**: Native Windows User32 via standard library `ctypes` and safe `subprocess` calls.
 - **Screen Awareness**: `mss` screen grab library + PIL/PNG formatting.
-- **Vision Foundation**: Native WinRT Windows Media OCR via PowerShell bridge + User32 child window control inspection.
-- **Memory Engine**: Native SQLite3 schema with deterministic relevance scoring and deduplication.
-- **Skills Engine**: Deterministic multi-step workflow executor with capability checking, Action → Observe → Verify orchestration, and memory outcome persistence.
-- **Voice Foundation**: Provider-based STT/TTS abstractions with standard library wave/audio packaging and EventBus lifecycle integration.
-- **Voice Command Pipeline**: End-to-end request-driven voice execution connecting STT, deterministic intent parsing, skill execution, honest verification, memory persistence, and spoken TTS feedback.
+- **Web Interface**: Vanilla HTML5, CSS3, and ES6 JavaScript with dark cinematic HUD aesthetic.
 
-## 15. Status & Deferred Milestones
+## 22. Status & Completed Milestones
 
-- **Implemented (Phases 1–8)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), Core REST skills endpoints (`/skills`), Voice models (`VoiceInput`, `SpeechRecognitionResult`, `SpeechSynthesisRequest`, `SpeechSynthesisResult`, `VoiceState`), AudioInput/AudioOutput abstractions, BaseSTTProvider, DeterministicSTTProvider, BaseTTSProvider, DeterministicTTSProvider with genuine WAV audio synthesis, VoiceService with EventBus lifecycle notifications, Core REST voice endpoints (`/voice`), VoiceCommand models (`VoiceCommandIntent`, `VoiceCommand`, `VoiceCommandResult`, `VoiceCommandRequest`), deterministic VoiceCommandParser, VoiceCommandService orchestrator, and Core REST voice command endpoints (`/voice/command`).
-- **Strictly Deferred**: Wake word detection, always-listening microphone, continuous ambient recording, autonomous agent loop triggers from ambient voice, LLM voice reasoning, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
+- **Fully Implemented & Verified (Phases 1–16)**:
+  - Phase 1 — Foundation & Lifecycle
+  - Phase 2 — Core Runtime & State Machine
+  - Phase 3 — Windows Agent Bridge & WebSocket Protocol
+  - Phase 4 — Windows Desktop Automation (Mouse, Keyboard, Windows, Applications)
+  - Phase 5 — Adaptive Screen Awareness & Verification
+  - Phase 6A — Vision Foundation (OCR & UI Element Trees)
+  - Phase 6B — Persistent Memory Engine (SQLite Store & Deduplication)
+  - Phase 6C — Skills Engine (Deterministic Workflows)
+  - Phase 7 — Voice Foundation (STT & TTS)
+  - Phase 8 — Voice Command Pipeline (Request-Driven Speech Execution)
+  - Phase 9–16 — Full Intelligence & Productization Build:
+    - Model-agnostic local model runtime (`LocalModelProvider`, `DeterministicLocalProvider`)
+    - Centralized reasoning engine with memory augmentation and conversation/action separation
+    - Autonomous multi-step planner with dependency graphs and verification checkpoints
+    - Centralized security policy engine with application allowlists and zero-shell enforcement
+    - Automated recovery engine with fault classification and bounded retries
+    - Vision-assisted screen reasoning with graceful OCR fallback
+    - Full product web interface, persistent dynamic Orb HUD, and virtual cursor overlay
+    - Comprehensive system diagnostics API (`GET /system/status`)
+

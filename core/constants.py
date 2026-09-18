@@ -52,6 +52,31 @@ class EventType(str, Enum):
     VOICE_COMMAND_EXECUTION_COMPLETED = "voice_command_execution_completed"
     VOICE_COMMAND_FAILED = "voice_command_failed"
     VOICE_COMMAND_RESPONSE_READY = "voice_command_response_ready"
+    ORB_STATE_CHANGED = "orb_state_changed"
+    PLAN_CREATED = "plan_created"
+    PLAN_STEP_STARTED = "plan_step_started"
+    PLAN_STEP_VERIFYING = "plan_step_verifying"
+    PLAN_STEP_COMPLETED = "plan_step_completed"
+    PLAN_STEP_FAILED = "plan_step_failed"
+    PLAN_RECOVERING = "plan_recovering"
+    PLAN_COMPLETED = "plan_completed"
+    VIRTUAL_CURSOR_MOVED = "virtual_cursor_moved"
+    REASONING_STARTED = "reasoning_started"
+    REASONING_COMPLETED = "reasoning_completed"
+
+
+class OrbState(str, Enum):
+    """Visual states for the persistent JARVIS Orb / HUD."""
+
+    IDLE = "idle"
+    LISTENING = "listening"
+    THINKING = "thinking"
+    PLANNING = "planning"
+    ACTING = "acting"
+    VERIFYING = "verifying"
+    RECOVERING = "recovering"
+    SUCCESS = "success"
+    ERROR = "error"
 
 
 class DeviceType(str, Enum):
