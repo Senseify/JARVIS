@@ -107,16 +107,92 @@ Every computer control command executed by the agent produces an `ActionReceipt`
 - `result`: Structured data returned by the automation controller.
 - `error`: Error description if execution failed.
 
-## 7. Technology Choices
+## 7. Observation Subsystem & Screen Awareness (Phase 5)
+
+Located in `windows_agent/observation/`, this subsystem gives JARVIS controlled, request-driven visual awareness of the Windows desktop without continuous screen streaming.
+
+### 7.1 Screen Capture Subsystem (`ScreenCapture`)
+- **Technology**: Fast, lightweight Windows-compatible screen grab via `mss` (using DirectX/GDI backends).
+- **Request-Driven Execution**: Screen capture is triggered strictly on demand (e.g. before/after actions, on verification checks, or on errors). Continuous background streaming is forbidden.
+- **Capabilities**:
+  - Full-screen capture across primary or specified monitor indices.
+  - Active monitor detection.
+  - Configurable sub-region bounding box (`top`, `left`, `width`, `height`).
+  - Active foreground window metadata extraction (HWND, window title, PID).
+  - Clean platform handling: On Windows, invokes User32 APIs via `ctypes`; on non-Windows environments, operates safely without pretending a Windows display exists.
+
+### 7.2 ScreenState Model
+Structured representation of the desktop state without dumping heavy raw image arrays across Core communication channels:
+- `capture_id`: Unique UUID4 identifying the observation.
+- `timestamp`: UTC ISO 8601 timestamp.
+- `width` & `height`: Resolution of the captured frame.
+- `monitor_index`: 1-indexed monitor index.
+- `active_window`: Dictionary of active foreground window title, handle, and PID.
+- `file_path`: Local filesystem path to stored screenshot artifact.
+- `metadata`: Monitor counts, bounding coordinates, and host platform indicators.
+
+### 7.3 Temporary Observation Store (`ObservationStore`)
+Short-lived temporary cache for observation screenshots:
+- **Unique Storage**: Files named `obs_<capture_id>.png` in a designated temporary folder.
+- **Configurable Retention**: Default `max_age_seconds` (e.g. 300s) and `max_items` (e.g. 50 entries).
+- **Pruning & Lifecycle**: Automated age-based expiration and count-based pruning (oldest first).
+- **No Permanent Retention**: Screenshots are purged automatically; `clear()` empties the store completely.
+
+### 7.4 Adaptive Observation Policy (`AdaptiveObservationPolicy`)
+Controls when observation is authorized according to task execution lifecycle:
+- `IDLE`: Strictly no continuous capture or polling.
+- `BEFORE_ACTION`: Screen capture only when explicitly requested (`pre_observe=True`).
+- `AFTER_ACTION`: Screen capture executed when action requires verification.
+- `VERIFYING`: Screen capture authorized to validate resulting state.
+- `ERROR`: Screen capture executed on unexpected failure for diagnostics.
+- `RECOVERING`: Screen capture authorized prior to remediation retry.
+
+### 7.5 Verification Engine (`VerificationEngine`)
+Deterministic verification subsystem checking actual observed state against expected conditions:
+- **Primitives**:
+  - `active_window_title`: Verifies foreground window title matches expected substring or exact text.
+  - `window_exists`: Verifies target window is present in enumerated window list.
+  - `window_is_visible`: Verifies window exists AND is marked visible.
+  - `window_disappeared`: Verifies closed or absent window.
+  - `screen_dimensions`: Verifies screen resolution satisfies minimum thresholds.
+- **Structured Verification Results (`VerificationResult`)**:
+  - `verification_id`: UUID4 for auditability.
+  - `check_type`: Name of verified primitive.
+  - `expected_condition`: Description of condition.
+  - `observed_state`: Actual recorded state.
+  - `passed`: Boolean pass/fail outcome.
+  - `failure_reason`: Explanatory failure reason when check does not pass.
+- **Honest Verification**: Verifier never claims success without actually inspecting observed state. Failures preserve diagnostic metadata without pretending success.
+
+### 7.6 Action → Observe → Verify Flow (`action.verify`)
+Composes execution, observation, and verification into a unified capability:
+```
+1. (Optional) Observe Pre-Action ScreenState
+2. Execute Action Capability (e.g. app.launch, window.focus, mouse.click)
+3. Observe Resulting Post-Action ScreenState
+4. Enumerate Window States if verifying window properties
+5. Run Deterministic Verification Check
+6. Return Combined Action Receipt + Verification Result
+```
+
+## 8. Privacy and Security Model
+
+1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video. Observations are discrete and explicit.
+2. **Controlled Retention**: Image files exist only in short-lived temporary storage with strict retention pruning.
+3. **Payload Separation**: Large image binaries remain local to the storage layer; only metadata, resolution, window context, and file references are transmitted across Core channels.
+4. **Parameter Validation**: Strict Pydantic schemas forbid unvalidated extra fields and enforce positive bounds on capture coordinates.
+
+## 9. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
 - **Validation**: Pydantic v2 schemas for all payloads and envelopes.
 - **Persistence**: Async SQLite3 (thread-pool driven, WAL mode, zero external C-dependencies).
 - **Communication**: REST API for management + WebSockets for client events (`/ws/events`) and agent coordination (`/ws/agent`).
-- **Desktop Automation**: Native Windows User32 via standard library `ctypes` and safe `subprocess` calls without heavy third-party automation dependencies.
+- **Desktop Automation**: Native Windows User32 via standard library `ctypes` and safe `subprocess` calls.
+- **Screen Awareness**: `mss` screen grab library + PIL/PNG formatting.
 
-## 8. Status & Deferred Milestones
+## 10. Status & Deferred Milestones
 
-- **Implemented**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, typed validation.
-- **Strictly Deferred**: Screen capture, OCR, computer vision, continuous screen streaming, virtual cursor overlay, floating Orb/HUD, voice recognition, wake words, iPad companion, remote internet networking, LLM provider integrations.
+- **Implemented (Phase 1–5)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, and Action → Observe → Verify workflow.
+- **Strictly Deferred**: OCR, computer vision, UI element recognition from pixels, LLM vision, virtual cursor overlay, floating Orb/HUD, voice recognition, wake words, iPad companion, remote internet networking, autonomous recovery loops.

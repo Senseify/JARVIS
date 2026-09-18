@@ -86,3 +86,70 @@ async def test_native_windows_automation_integration():
                 os.kill(launched_pid, signal.SIGTERM)
             except Exception:
                 pass
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Native Windows desktop integration test requires Windows operating system with active GUI session.",
+)
+@pytest.mark.asyncio
+async def test_native_windows_screen_capture_and_verification():
+    """Verify real native Windows screen capture and Action -> Observe -> Verify execution:
+    1. Perform real screen.capture
+    2. Check valid screen dimensions and temporary observation file
+    3. Launch Notepad with action.verify checking window_exists
+    4. Focus Notepad with action.verify checking active_window_title
+    5. Terminate Notepad
+    """
+    registry = CapabilityRegistry()
+    launched_pid = None
+
+    try:
+        # 1. Real screen capture
+        cap_res = await registry.execute("screen.capture", {}, request_id="real-win-cap")
+        assert cap_res["success"] is True
+        assert cap_res["width"] > 0
+        assert cap_res["height"] > 0
+        assert cap_res["file_path"] is not None
+        assert os.path.exists(cap_res["file_path"])
+        assert cap_res["metadata"]["is_windows"] is True
+
+        # 2. Action -> Observe -> Verify: Launch Notepad and verify window_exists
+        verify_launch = await registry.execute(
+            "action.verify",
+            {
+                "action_capability": "app.launch",
+                "action_parameters": {"app_name": "notepad"},
+                "expected_condition": "window_exists",
+                "expected_value": "notepad",
+                "pre_observe": True,
+            },
+            request_id="real-win-act-ver-launch",
+        )
+        assert verify_launch["success"] is True
+        assert verify_launch["verified"] is True
+        launched_pid = verify_launch["action_receipt"].get("pid")
+
+        await asyncio.sleep(0.5)
+
+        # 3. Action -> Observe -> Verify: Focus Notepad and verify active_window_title
+        verify_focus = await registry.execute(
+            "action.verify",
+            {
+                "action_capability": "window.focus",
+                "action_parameters": {"title": "Notepad"},
+                "expected_condition": "active_window_title",
+                "expected_value": "Notepad",
+                "pre_observe": False,
+            },
+            request_id="real-win-act-ver-focus",
+        )
+        assert verify_focus["success"] is True
+        assert verify_focus["verified"] is True
+
+    finally:
+        if launched_pid:
+            try:
+                os.kill(launched_pid, signal.SIGTERM)
+            except Exception:
+                pass

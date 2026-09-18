@@ -233,12 +233,19 @@ class WindowsAgent:
                 req.parameters,
                 request_id=req.request_id,
             )
+            is_success = True
+            error_msg = None
+            if isinstance(result_data, dict) and result_data.get("success") is False:
+                is_success = False
+                error_msg = result_data.get("failure_reason") or result_data.get("error") or "Capability execution failed."
+
             cmd_result = CommandResultPayload(
                 request_id=req.request_id,
                 device_id=self.device_id,
                 capability=req.capability,
-                success=True,
+                success=is_success,
                 result=result_data,
+                error=error_msg,
             )
         except Exception as e:
             logger.warning(f"Command execution error for {req.capability}: {e}")

@@ -1,5 +1,6 @@
 """Capability registry mapping capability names to validators, controllers, and action receipts."""
 
+import asyncio
 from datetime import datetime, timezone
 import logging
 import platform
@@ -30,6 +31,19 @@ from windows_agent.automation.windows import (
     WindowFocusParams,
     WindowListParams,
 )
+from windows_agent.observation.capture import ScreenCapture
+from windows_agent.observation.models import (
+    ActionVerifyParams,
+    CaptureScreenParams,
+    ScreenState,
+    VerificationResult,
+)
+from windows_agent.observation.policy import (
+    AdaptiveObservationPolicy,
+    ObservationTrigger,
+)
+from windows_agent.observation.store import ObservationStore
+from windows_agent.observation.verifier import VerificationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +61,26 @@ class CapabilityRegistry:
         keyboard_controller: Optional[KeyboardController] = None,
         window_controller: Optional[WindowController] = None,
         app_controller: Optional[ApplicationController] = None,
+        observation_store: Optional[ObservationStore] = None,
+        screen_capture: Optional[ScreenCapture] = None,
+        verification_engine: Optional[VerificationEngine] = None,
+        observation_policy: Optional[AdaptiveObservationPolicy] = None,
     ):
         self.agent_version = agent_version
         self.start_time = start_time or time.time()
         self._capabilities: Dict[str, Dict[str, Any]] = {}
 
-        # Controllers
+        # Automation Controllers
         self.mouse = mouse_controller or MouseController()
         self.keyboard = keyboard_controller or KeyboardController()
         self.windows = window_controller or WindowController()
         self.apps = app_controller or ApplicationController()
+
+        # Observation & Verification Subsystems
+        self.store = observation_store or ObservationStore()
+        self.capture = screen_capture or ScreenCapture(store=self.store)
+        self.verifier = verification_engine or VerificationEngine()
+        self.policy = observation_policy or AdaptiveObservationPolicy()
 
         self._register_all_capabilities()
 
@@ -118,20 +142,22 @@ class CapabilityRegistry:
         with tracker:
             try:
                 raw_result = await handler(validated_params)
-                receipt = tracker.create_receipt(success=True, result=raw_result)
+                is_success = True
+                if isinstance(raw_result, dict) and raw_result.get("success") is False:
+                    is_success = False
+                receipt = tracker.create_receipt(success=is_success, result=raw_result)
                 receipt_dict = receipt.model_dump()
                 # Merge top-level result keys for convenient direct access
                 if isinstance(raw_result, dict):
                     for k, v in raw_result.items():
-                        if k not in receipt_dict:
-                            receipt_dict[k] = v
+                        receipt_dict[k] = v
                 return receipt_dict
             except Exception as e:
                 receipt = tracker.create_receipt(success=False, error=str(e))
                 raise RuntimeError(str(e)) from e
 
     def _register_all_capabilities(self) -> None:
-        """Register both diagnostic capabilities and desktop automation capabilities."""
+        """Register diagnostic, automation, observation, and verification capabilities."""
 
         # -------------------------------------------------------------
         # 1. Diagnostic / System Capabilities
@@ -236,4 +262,67 @@ class CapabilityRegistry:
             self.apps.launch,
             description="Launch an allowlisted desktop application.",
             validator_cls=AppLaunchParams,
+        )
+
+        # -------------------------------------------------------------
+        # 6. Screen Observation Capability (Phase 5)
+        # -------------------------------------------------------------
+        async def screen_capture_handler(params: CaptureScreenParams) -> Dict[str, Any]:
+            state = await self.capture.capture(params)
+            return state.model_dump()
+
+        self.register(
+            "screen.capture",
+            screen_capture_handler,
+            description="Perform a request-driven screen capture and return structured metadata.",
+            validator_cls=CaptureScreenParams,
+        )
+
+        # -------------------------------------------------------------
+        # 7. Action -> Observe -> Verify Capability (Phase 5)
+        # -------------------------------------------------------------
+        async def action_verify_handler(params: ActionVerifyParams) -> Dict[str, Any]:
+            pre_state_dict = None
+            if self.policy.should_observe(ObservationTrigger.BEFORE_ACTION, require_pre_observe=params.pre_observe):
+                pre_state = await self.capture.capture()
+                pre_state_dict = pre_state.model_dump()
+
+            # Execute the action capability
+            action_receipt = await self.execute(params.action_capability, params.action_parameters)
+
+            # Brief pause for window creation if applicable
+            if params.action_capability in ("app.launch", "window.focus"):
+                await asyncio.sleep(0.3)
+
+            # Post-action screen observation
+            post_state = await self.capture.capture()
+
+            # Enumerate windows if verifying window properties
+            win_result = await self.windows.list_windows(WindowListParams(include_invisible=False))
+            window_list = win_result.get("windows", [])
+
+            # Run deterministic verification check
+            verification_res = self.verifier.verify_condition(
+                condition=params.expected_condition,
+                expected_value=params.expected_value,
+                screen_state=post_state,
+                window_list=window_list,
+            )
+
+            return {
+                "action_capability": params.action_capability,
+                "action_receipt": action_receipt,
+                "verified": verification_res.passed,
+                "verification": verification_res.model_dump(),
+                "post_screen_state": post_state.model_dump(),
+                "pre_screen_state": pre_state_dict,
+                "success": bool(action_receipt.get("success", False) and verification_res.passed),
+                "failure_reason": verification_res.failure_reason,
+            }
+
+        self.register(
+            "action.verify",
+            action_verify_handler,
+            description="Execute an action capability, observe resulting state, and verify expected condition.",
+            validator_cls=ActionVerifyParams,
         )
