@@ -228,7 +228,11 @@ class WindowsAgent:
             return
 
         try:
-            result_data = await self.capabilities.execute(req.capability, req.parameters)
+            result_data = await self.capabilities.execute(
+                req.capability,
+                req.parameters,
+                request_id=req.request_id,
+            )
             cmd_result = CommandResultPayload(
                 request_id=req.request_id,
                 device_id=self.device_id,
