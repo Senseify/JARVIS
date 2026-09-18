@@ -378,7 +378,50 @@ A Skill is NOT a new tool or an LLM agent prompt. It is a strictly validated, mu
 - `GET /skills/{skill_id}`: Retrieve a specific skill definition.
 - `POST /skills/{skill_id}/execute`: Execute a skill with input parameters, returning structured `SkillResult`.
 
-## 11. Privacy and Security Model
+## 11. Voice Foundation
+
+Located in `core/voice/`, the Voice Foundation establishes a platform-independent, provider-based speech recognition and synthesis architecture:
+
+```
+Audio Input (Base64/Bytes) ──► AudioInput ──► Speech-to-Text (STT) ──► SpeechRecognitionResult (Text)
+
+SpeechSynthesisRequest (Text) ──► Text-to-Speech (TTS) ──► AudioOutput ──► SpeechSynthesisResult (Audio Bytes)
+```
+
+### 11.1 Structured Voice Models
+- **`VoiceInput`**: Strict Pydantic model for inbound speech recognition requests (`audio_base64`, `format`, `sample_rate`, `channels`, `metadata`).
+- **`SpeechRecognitionResult`**: Transcription receipt containing `text`, `confidence`, `language`, `duration_seconds`, `is_final`, and `provider`.
+- **`SpeechSynthesisRequest`**: Synthesis request specifying `text`, `voice_id`, `language`, `speed`, `pitch`, and output `format`.
+- **`SpeechSynthesisResult`**: Synthesis receipt returning `audio_base64`, `audio_bytes_length`, `format`, `duration_seconds`, and `sample_rate`.
+- **`VoiceState`**: Subsystem health and activity model reporting `status` (`ready`, `transcribing`, `synthesizing`, `error`), `is_listening`, `is_speaking`, and active provider names.
+
+### 11.2 Audio Abstraction Layer (`core/voice/audio.py`)
+- Isolates physical audio byte formats and encodings from STT/TTS engines:
+  - **`AudioInput`**: Base64 encoding/decoding, channel/rate validation, duration estimation from RIFF/WAV headers or raw PCM byte count.
+  - **`AudioOutput`**: Container for synthesized audio payloads.
+  - **`create_wav_pcm`**: Standard library `wave` utility assembling byte-compliant RIFF/WAV files with 44-byte headers without external binary dependencies.
+
+### 11.3 Speech-to-Text (`core/voice/stt.py`)
+- **`BaseSTTProvider(ABC)`**: Provider interface declaring `transcribe(audio: AudioInput, language: Optional[str])` and availability inspection.
+- **`DeterministicSTTProvider`**: Deterministic, zero-dependency provider for offline environments, automated CI testing, and predictable verification. Supports metadata transcription overrides for injection testing.
+
+### 11.4 Text-to-Speech (`core/voice/tts.py`)
+- **`BaseTTSProvider(ABC)`**: Provider interface declaring `synthesize(request: SpeechSynthesisRequest)` and availability inspection.
+- **`DeterministicTTSProvider`**: Deterministic provider that synthesizes genuine, valid 16-bit PCM WAV audio byte streams (modulated by speed and pitch). Guarantees that successful synthesis is never claimed without generating real decodable audio.
+
+### 11.5 Voice Service & Event Coordination (`core/voice/service.py`)
+- High-level coordinator managing STT/TTS dispatch, state tracking, and lifecycle notifications:
+  - Publishes `VOICE_INPUT_RECEIVED` upon receiving audio.
+  - Publishes `VOICE_TRANSCRIPTION_COMPLETED` with transcription details.
+  - Publishes `VOICE_SYNTHESIS_STARTED` and `VOICE_SYNTHESIS_COMPLETED`.
+  - Publishes `VOICE_ERROR` upon transcription or synthesis failures, isolating errors cleanly.
+
+### 11.6 Core REST Endpoints
+- `GET /voice/status`: Inspect voice subsystem status and provider readiness.
+- `POST /voice/transcribe`: Transcribe base64-encoded audio payload into text.
+- `POST /voice/speak`: Synthesize text into base64-encoded WAV audio bytes.
+
+## 12. Privacy and Security Model
 
 1. **No Hidden Continuous Streaming**: The agent does not record or stream desktop video.
 2. **Local-Only Persistence**: Memories and observations reside strictly on the local host SQLite database. No cloud memory, external vector APIs, or third-party telemetry.
@@ -386,8 +429,9 @@ A Skill is NOT a new tool or an LLM agent prompt. It is a strictly validated, mu
 4. **Expiration Support**: Ephemeral memories support `expires_at` and are automatically filtered out and pruned.
 5. **Payload Separation**: Large image binaries remain local to the observation layer; memories store text, metadata, and identifiers.
 6. **Strict Safety Boundaries**: Skills do not execute arbitrary shell commands, unvetted binaries, or unrestricted code. Applications remain strictly bounded to the explicit allowlist.
+7. **No Ambient Microphone Snooping**: Voice recognition is request-driven; no always-listening microphone or background audio recording is enabled.
 
-## 12. Technology Choices
+## 13. Technology Choices
 
 - **Language Runtime**: Python 3.12 (Supported range: `>=3.11, <3.14`).
 - **Core Framework**: FastAPI + Uvicorn standard.
@@ -399,8 +443,9 @@ A Skill is NOT a new tool or an LLM agent prompt. It is a strictly validated, mu
 - **Vision Foundation**: Native WinRT Windows Media OCR via PowerShell bridge + User32 child window control inspection.
 - **Memory Engine**: Native SQLite3 schema with deterministic relevance scoring and deduplication.
 - **Skills Engine**: Deterministic multi-step workflow executor with capability checking, Action → Observe → Verify orchestration, and memory outcome persistence.
+- **Voice Foundation**: Provider-based STT/TTS abstractions with standard library wave/audio packaging and EventBus lifecycle integration.
 
-## 13. Status & Deferred Milestones
+## 14. Status & Deferred Milestones
 
-- **Implemented (Phases 1–6C)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), and Core REST skills endpoints (`/skills`).
-- **Strictly Deferred**: LLM reasoning/planning, autonomous agent loops beyond existing runtime, voice recognition, wake words, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.
+- **Implemented (Phases 1–7)**: Core runtime, SQLite persistence, WebSocket bridge, Windows Agent process, mouse/keyboard/window/allowlisted app automation, action receipts, request-driven screen capture, temporary observation store, deterministic verification engine, adaptive observation policy, Action → Observe → Verify workflow, OCR extraction, native UI element detection, coordinate mapping, vision caching, unified ScreenUnderstanding, persistent MemoryEntry model, SQLite MemoryStore, MemoryService with deduplication and deterministic scoring, Core REST memory endpoints, AgentRuntime REMEMBER stage integration, SkillDefinition and workflow step models, SkillRegistry with capability checking, SkillExecutor with deterministic step dispatch, error halting, and MemoryService outcome persistence, built-in skills (`launch_and_verify`, `type_and_verify`, `click_and_verify`), Core REST skills endpoints (`/skills`), Voice models (`VoiceInput`, `SpeechRecognitionResult`, `SpeechSynthesisRequest`, `SpeechSynthesisResult`, `VoiceState`), AudioInput/AudioOutput abstractions, BaseSTTProvider, DeterministicSTTProvider, BaseTTSProvider, DeterministicTTSProvider with genuine WAV audio synthesis, VoiceService with EventBus lifecycle notifications, and Core REST voice endpoints (`/voice`).
+- **Strictly Deferred**: Wake word detection, always-listening microphone, autonomous voice command execution loop, LLM voice reasoning, floating Orb/HUD, virtual cursor overlay, iPad companion, multi-device routing, Marvel/Unity integration.

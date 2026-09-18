@@ -32,6 +32,13 @@ from core.models.skills import (
     SkillResult,
 )
 from core.models.tasks import Task, TaskCreateRequest, TaskStatusResponse
+from core.models.voice import (
+    SpeechRecognitionResult,
+    SpeechSynthesisRequest,
+    SpeechSynthesisResult,
+    VoiceInput,
+    VoiceState,
+)
 from core.persistence.database import Database
 from core.runtime.agent_runtime import AgentRuntime
 from core.skills.builtin import get_builtin_skills
@@ -40,6 +47,9 @@ from core.skills.registry import SkillRegistry
 from core.tasks.manager import TaskManager
 from core.tools.demo import DemoVerificationTool
 from core.tools.registry import ToolRegistry
+from core.voice.service import VoiceService
+from core.voice.stt import DeterministicSTTProvider
+from core.voice.tts import DeterministicTTSProvider
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +81,11 @@ class RuntimeContainer:
             agent_bridge=self.agent_bridge,
             tool_registry=self.tool_registry,
             memory_service=self.memory_service,
+        )
+        self.voice_service = VoiceService(
+            stt_provider=DeterministicSTTProvider(),
+            tts_provider=DeterministicTTSProvider(),
+            event_bus=self.event_bus,
         )
 
 
@@ -347,6 +362,31 @@ def create_app(container: Optional[RuntimeContainer] = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except TimeoutError as e:
             raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    # -------------------------------------------------------------
+    # Voice Endpoints (Voice Foundation)
+    # -------------------------------------------------------------
+    @app.get("/voice/status", response_model=VoiceState)
+    async def get_voice_status():
+        return await rt.voice_service.get_status()
+
+    @app.post("/voice/transcribe", response_model=SpeechRecognitionResult)
+    async def transcribe_voice(voice_input: VoiceInput):
+        try:
+            return await rt.voice_service.transcribe(voice_input)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    @app.post("/voice/speak", response_model=SpeechSynthesisResult)
+    async def speak_text(request: SpeechSynthesisRequest):
+        try:
+            return await rt.voice_service.speak(request)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 

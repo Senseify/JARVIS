@@ -41,6 +41,11 @@ class EventType(str, Enum):
     MEMORY_STORED = "memory_stored"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
+    VOICE_INPUT_RECEIVED = "voice_input_received"
+    VOICE_TRANSCRIPTION_COMPLETED = "voice_transcription_completed"
+    VOICE_SYNTHESIS_STARTED = "voice_synthesis_started"
+    VOICE_SYNTHESIS_COMPLETED = "voice_synthesis_completed"
+    VOICE_ERROR = "voice_error"
 
 
 class DeviceType(str, Enum):

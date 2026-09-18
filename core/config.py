@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     port: int = DEFAULT_PORT
     database_path: str = DEFAULT_DB_PATH
     enable_demo_tool: bool = True
+    voice_stt_provider: str = "deterministic"
+    voice_tts_provider: str = "deterministic"
+    voice_default_language: str = "en-US"
+    voice_default_voice: str = "default"
+    voice_sample_rate: int = 16000
 
     model_config = SettingsConfigDict(
         env_prefix="JARVIS_",

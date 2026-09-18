@@ -30,6 +30,14 @@ from core.models.skills import (
     SkillStep,
     SkillStepResult,
 )
+from core.models.voice import (
+    AudioFormat,
+    SpeechRecognitionResult,
+    SpeechSynthesisRequest,
+    SpeechSynthesisResult,
+    VoiceInput,
+    VoiceState,
+)
 
 __all__ = [
     "AgentEvent",
@@ -58,4 +66,10 @@ __all__ = [
     "SkillExecution",
     "SkillResult",
     "SkillExecuteRequest",
+    "AudioFormat",
+    "VoiceInput",
+    "SpeechRecognitionResult",
+    "SpeechSynthesisRequest",
+    "SpeechSynthesisResult",
+    "VoiceState",
 ]
