@@ -78,3 +78,7 @@ node_modules/
 dist-ssr/
 *.local
 src-tauri/target/
+
+# SQLite runtime files
+jarvis.db-shm
+jarvis.db-wal
